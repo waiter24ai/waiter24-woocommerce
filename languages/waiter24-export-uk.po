@@ -1,0 +1,97 @@
+# Ukrainian translation for Waiter24 - export
+msgid ""
+msgstr ""
+"Project-Id-Version: Waiter24 - export 1.1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"PO-Revision-Date: 2024-01-01 00:00+0000\n"
+"Last-Translator: \n"
+"Language-Team: Ukrainian\n"
+"Language: uk\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Waiter24 — Export"
+msgstr "Waiter24 — Експорт"
+
+msgid "Waiter24 Export"
+msgstr "Waiter24 Експорт"
+
+msgid "You do not have sufficient permissions to access this page."
+msgstr "У вас недостатньо прав для доступу до цієї сторінки."
+
+msgid "You do not have sufficient permissions."
+msgstr "У вас недостатньо прав."
+
+msgid "Export completed successfully!"
+msgstr "Експорт виконано успішно!"
+
+msgid "The file has been saved and the notification sent."
+msgstr "Файл збережено, сповіщення надіслано."
+
+msgid "Export failed."
+msgstr "Помилка експорту."
+
+msgid "Make sure WooCommerce is active and products exist."
+msgstr "Переконайтеся, що WooCommerce активний і товари існують."
+
+msgid "Unique Key"
+msgstr "Унікальний ключ"
+
+msgid "Enter unique key"
+msgstr "Введіть унікальний ключ"
+
+msgid "The key that will be sent to the external service upon notification."
+msgstr "Ключ, який буде надіслано зовнішньому сервісу при сповіщенні."
+
+msgid "Export Period"
+msgstr "Період експорту"
+
+msgid "Daily"
+msgstr "Щоденно"
+
+msgid "Weekly"
+msgstr "Щотижня"
+
+msgid "Monthly"
+msgstr "Щомісяця"
+
+msgid "Once Weekly"
+msgstr "Раз на тиждень"
+
+msgid "Once Monthly"
+msgstr "Раз на місяць"
+
+msgid "Enable Chat Widget"
+msgstr "Увімкнути віджет чату"
+
+msgid "Insert chat widget script on all frontend pages"
+msgstr "Вставити скрипт віджету чату на всіх сторінках сайту"
+
+msgid "When enabled, the Waiter24 chat widget script will be loaded before the closing &lt;/body&gt; tag."
+msgstr "Коли увімкнено, скрипт віджету чату Waiter24 буде завантажено перед закриваючим тегом &lt;/body&gt;."
+
+msgid "Simple Stock Mode"
+msgstr "Спрощений режим залишків"
+
+msgid "Always mark all products as in-stock (ignore real stock data)"
+msgstr "Завжди позначати всі товари як наявні (ігнорувати реальні дані залишків)"
+
+msgid "When enabled: stock_status = true and qty = false for every product. When disabled: real WooCommerce stock values are exported."
+msgstr "Коли увімкнено: stock_status = true та qty = false для кожного товару. Коли вимкнено: експортуються реальні значення залишків WooCommerce."
+
+msgid "Save Settings"
+msgstr "Зберегти налаштування"
+
+msgid "Manual Export"
+msgstr "Ручний експорт"
+
+msgid "Export Now"
+msgstr "Експортувати зараз"
+
+msgid "Next scheduled export:"
+msgstr "Наступний запланований експорт:"
+
+msgid "Last export file:"
+msgstr "Останній файл експорту:"

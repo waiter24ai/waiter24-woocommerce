@@ -1,0 +1,97 @@
+# German translation for Waiter24 - export
+msgid ""
+msgstr ""
+"Project-Id-Version: Waiter24 - export 1.1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"PO-Revision-Date: 2024-01-01 00:00+0000\n"
+"Last-Translator: \n"
+"Language-Team: German\n"
+"Language: de_DE\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Waiter24 — Export"
+msgstr "Waiter24 — Export"
+
+msgid "Waiter24 Export"
+msgstr "Waiter24 Export"
+
+msgid "You do not have sufficient permissions to access this page."
+msgstr "Sie haben nicht genügend Berechtigungen, um auf diese Seite zuzugreifen."
+
+msgid "You do not have sufficient permissions."
+msgstr "Sie haben nicht genügend Berechtigungen."
+
+msgid "Export completed successfully!"
+msgstr "Export erfolgreich abgeschlossen!"
+
+msgid "The file has been saved and the notification sent."
+msgstr "Die Datei wurde gespeichert und die Benachrichtigung gesendet."
+
+msgid "Export failed."
+msgstr "Export fehlgeschlagen."
+
+msgid "Make sure WooCommerce is active and products exist."
+msgstr "Stellen Sie sicher, dass WooCommerce aktiv ist und Produkte vorhanden sind."
+
+msgid "Unique Key"
+msgstr "Eindeutiger Schlüssel"
+
+msgid "Enter unique key"
+msgstr "Eindeutigen Schlüssel eingeben"
+
+msgid "The key that will be sent to the external service upon notification."
+msgstr "Der Schlüssel, der bei der Benachrichtigung an den externen Dienst gesendet wird."
+
+msgid "Export Period"
+msgstr "Exportzeitraum"
+
+msgid "Daily"
+msgstr "Täglich"
+
+msgid "Weekly"
+msgstr "Wöchentlich"
+
+msgid "Monthly"
+msgstr "Monatlich"
+
+msgid "Once Weekly"
+msgstr "Einmal wöchentlich"
+
+msgid "Once Monthly"
+msgstr "Einmal monatlich"
+
+msgid "Enable Chat Widget"
+msgstr "Chat-Widget aktivieren"
+
+msgid "Insert chat widget script on all frontend pages"
+msgstr "Chat-Widget-Skript auf allen Frontend-Seiten einfügen"
+
+msgid "When enabled, the Waiter24 chat widget script will be loaded before the closing &lt;/body&gt; tag."
+msgstr "Wenn aktiviert, wird das Waiter24-Chat-Widget-Skript vor dem schließenden &lt;/body&gt;-Tag geladen."
+
+msgid "Simple Stock Mode"
+msgstr "Einfacher Bestandsmodus"
+
+msgid "Always mark all products as in-stock (ignore real stock data)"
+msgstr "Alle Produkte immer als vorrätig markieren (echte Bestandsdaten ignorieren)"
+
+msgid "When enabled: stock_status = true and qty = false for every product. When disabled: real WooCommerce stock values are exported."
+msgstr "Wenn aktiviert: stock_status = true und qty = false für jedes Produkt. Wenn deaktiviert: echte WooCommerce-Bestandswerte werden exportiert."
+
+msgid "Save Settings"
+msgstr "Einstellungen speichern"
+
+msgid "Manual Export"
+msgstr "Manueller Export"
+
+msgid "Export Now"
+msgstr "Jetzt exportieren"
+
+msgid "Next scheduled export:"
+msgstr "Nächster geplanter Export:"
+
+msgid "Last export file:"
+msgstr "Letzte Exportdatei:"
