@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Waiter24 - export WooCommerce
  * Description: Export WooCommerce products to JSON on schedule or manually, push them to the Waiter24 import endpoint, and manage a frontend chat widget.
- * Version: 1.2.0
+ * Version: 1.3.0
  * Author: Developer
  * Requires Plugins: woocommerce
  * Text Domain: waiter24-export
@@ -18,13 +18,16 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.2.0' );
+define( 'W24_EXPORT_VERSION', '1.3.0' );
 define( 'W24_EXPORT_DIR', WP_CONTENT_DIR . '/uploads/waiter24' );
 define( 'W24_EXPORT_FILE', W24_EXPORT_DIR . '/export.json' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
 define( 'W24_OPTION_KEY', 'waiter24_export_settings' );
+// Local testing build — points at the OSPanel dev host. For production set these
+// to https://waiter24.ai and flip sslverify (in w24_save_and_notify) back to true.
 define( 'W24_IMPORT_URL', 'http://waiter.loc/api/integrations/menu' );
 define( 'W24_WIDGET_URL', 'http://waiter.loc/widget.js' );
+define( 'W24_DEMO_PARAM', 'waiter24_demo' ); // GET param that reveals the widget in demo mode
 
 /**
  * =============================================
@@ -52,6 +55,7 @@ function w24_get_defaults() {
         'import_token'      => '', // secret token authenticating the menu push
         'export_period'     => 'daily',
         'enable_widget'     => 0,
+        'demo_mode'         => 0, // when on, the widget only loads on URLs carrying the demo param
         'simple_stock_mode' => 1, // enabled by default
     );
 }
@@ -157,6 +161,7 @@ function w24_sanitize_settings( $input ) {
         : 'daily';
 
     $sanitized['enable_widget']     = ! empty( $input['enable_widget'] ) ? 1 : 0;
+    $sanitized['demo_mode']         = ! empty( $input['demo_mode'] ) ? 1 : 0;
     $sanitized['simple_stock_mode'] = ! empty( $input['simple_stock_mode'] ) ? 1 : 0;
 
     // Reschedule cron when period changes
@@ -192,7 +197,9 @@ function w24_render_settings_page() {
     $import_token   = $settings['import_token'];
     $export_period  = $settings['export_period'];
     $enable_widget  = $settings['enable_widget'];
+    $demo_mode      = $settings['demo_mode'];
     $simple_stock   = $settings['simple_stock_mode'];
+    $demo_url       = add_query_arg( W24_DEMO_PARAM, '1', home_url( '/' ) );
     $next_scheduled = wp_next_scheduled( W24_CRON_HOOK );
     ?>
     <div class="wrap">
@@ -296,6 +303,40 @@ function w24_render_settings_page() {
                     </td>
                 </tr>
 
+                <!-- Demo Mode -->
+                <tr>
+                    <th scope="row">
+                        <?php esc_html_e( 'Demo Mode', 'waiter24-export' ); ?>
+                    </th>
+                    <td>
+                        <label for="w24_demo_mode">
+                            <input
+                                type="checkbox"
+                                id="w24_demo_mode"
+                                name="<?php echo esc_attr( W24_OPTION_KEY ); ?>[demo_mode]"
+                                value="1"
+                                <?php checked( $demo_mode, 1 ); ?>
+                            />
+                            <?php esc_html_e( 'Show the chat widget only to visitors who arrive via the demo link', 'waiter24-export' ); ?>
+                        </label>
+                        <p class="description">
+                            <?php
+                            printf(
+                                /* translators: %s: the demo GET parameter name. */
+                                esc_html__( 'When enabled, the widget stays hidden for regular visitors and appears only on URLs carrying the "%s" parameter. The parameter is then remembered for the browsing session and re-applied to links the assistant opens, so the chat stays visible while you click around.', 'waiter24-export' ),
+                                esc_html( W24_DEMO_PARAM )
+                            );
+                            ?>
+                        </p>
+                        <p class="description">
+                            <strong><?php esc_html_e( 'Open demo:', 'waiter24-export' ); ?></strong>
+                            <a href="<?php echo esc_url( $demo_url ); ?>" target="_blank" rel="noopener noreferrer">
+                                <?php echo esc_html( $demo_url ); ?>
+                            </a>
+                        </p>
+                    </td>
+                </tr>
+
                 <!-- Simple Stock Mode -->
                 <tr>
                     <th scope="row">
@@ -313,7 +354,7 @@ function w24_render_settings_page() {
                             <?php esc_html_e( 'Always mark all products as in-stock (ignore real stock data)', 'waiter24-export' ); ?>
                         </label>
                         <p class="description">
-                            <?php esc_html_e( 'When enabled: stock_status = true and qty = false for every product. When disabled: real WooCommerce stock values are exported.', 'waiter24-export' ); ?>
+                            <?php esc_html_e( 'When enabled: every product is exported as available, ignoring real stock. When disabled: real WooCommerce stock availability is used.', 'waiter24-export' ); ?>
                         </p>
                     </td>
                 </tr>
@@ -368,10 +409,15 @@ function w24_inject_widget_script() {
         return;
     }
 
+    $demo_attr = ! empty( $settings['demo_mode'] )
+        ? sprintf( ' data-demo-param="%s"', esc_attr( W24_DEMO_PARAM ) )
+        : '';
+
     printf(
-        '<script defer src="%s" data-key="%s"></script>' . "\n",
+        '<script defer src="%s" data-key="%s"%s></script>' . "\n",
         esc_url( W24_WIDGET_URL ),
-        esc_attr( $settings['unique_key'] )
+        esc_attr( $settings['unique_key'] ),
+        $demo_attr
     );
 }
 
@@ -404,9 +450,11 @@ function w24_run_export() {
     // ------------------------------------------
     //  site_config
     // ------------------------------------------
+    // Note: cart_integration_enabled is deliberately NOT sent — that toggle is
+    // owned by the Waiter24 tenant panel, and pushing a value here would reset
+    // the tenant's choice on every scheduled export.
     $site_config = array(
         'platform_preset'               => 'woocommerce',
-        'cart_integration_enabled'      => false,
         'cart_url'                      => wc_get_cart_url(),
         'cart_counter_selector'         => '.cart-contents .count',
         'add_button_selector'           => '.single_add_to_cart_button',
@@ -415,6 +463,10 @@ function w24_run_export() {
         'variation_select_pattern'      => 'select[name="attribute_{attribute}"]',
         'dom_wait_ms'                   => 500,
         'after_add_js'                  => "jQuery(document.body).trigger('wc_fragment_refresh')",
+        // No-reload add-to-cart endpoint (exact URL, correct for subdirectory
+        // installs). The widget POSTs product_id/quantity here and refreshes
+        // the mini-cart from the returned fragments.
+        'ajax_add_url'                  => WC_AJAX::get_endpoint( 'add_to_cart' ),
     );
 
     // ------------------------------------------
@@ -505,18 +557,8 @@ function w24_run_export() {
         $weight = $product->get_weight();
         $weight = '' !== $weight ? $weight . get_option( 'woocommerce_weight_unit', 'kg' ) : null;
 
-        // --- Stock (Simple Stock Mode logic) ---
-        if ( $simple_stock ) {
-            $stock_status = true;
-            $qty          = false;
-        } else {
-            $stock_status = $product->is_in_stock();
-            $stock_qty    = $product->get_stock_quantity();
-            $qty          = null !== $stock_qty ? (int) $stock_qty : null;
-        }
-
-        // --- Availability ---
-        $is_available = $product->is_in_stock();
+        // --- Availability (Simple Stock Mode forces every product in-stock) ---
+        $is_available = $simple_stock ? true : $product->is_in_stock();
 
         // --- Sort order ---
         $sort_order = (int) $product->get_menu_order();
@@ -568,8 +610,11 @@ function w24_run_export() {
                     $var_sale_price = '' !== $var_sale_price ? (float) $var_sale_price : null;
 
                     $variation_item = array(
-                        'name'  => $var_name,
-                        'price' => $var_price,
+                        'name'        => $var_name,
+                        'price'       => $var_price,
+                        // Woo variation id — lets the chat widget AJAX-add the
+                        // exact variation the guest picked in the dish card.
+                        'external_id' => (string) $var['variation_id'],
                     );
 
                     if ( null !== $var_sale_price ) {
@@ -608,8 +653,6 @@ function w24_run_export() {
         $item['tags']         = $tags_list;
         $item['photo_url']    = $photo_url;
         $item['product_url']  = $product_url;
-        $item['stock_status'] = $stock_status;
-        $item['qty']          = $qty;
 
         if ( null !== $variation_values ) {
             $item['variation_values'] = $variation_values;
@@ -659,7 +702,7 @@ function w24_save_and_notify( $data ) {
 
     $response = wp_remote_post( W24_IMPORT_URL, array(
         'timeout'   => 30,
-        'sslverify' => false,
+        'sslverify' => false, // local dev host has no TLS cert; set true for production HTTPS
         'headers'   => array(
             'Authorization' => 'Bearer ' . $import_token,
             'Content-Type'  => 'application/json',

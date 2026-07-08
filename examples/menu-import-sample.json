@@ -1,7 +1,6 @@
 {
     "site_config": {
         "platform_preset": "woocommerce",
-        "cart_integration_enabled": false,
         "cart_url": "https://example.com/cart",
         "cart_counter_selector": ".cart-contents .count",
         "add_button_selector": ".single_add_to_cart_button",
@@ -9,7 +8,8 @@
         "variations_container_selector": ".variations",
         "variation_select_pattern": "select[name=\"attribute_{attribute}\"]",
         "dom_wait_ms": 500,
-        "after_add_js": "jQuery(document.body).trigger('wc_fragment_refresh')"
+        "after_add_js": "jQuery(document.body).trigger('wc_fragment_refresh')",
+        "ajax_add_url": "https://example.com/?wc-ajax=add_to_cart"
     },
     "items": [
         {
@@ -27,9 +27,9 @@
             "product_url": "https://example.com/product/margherita",
             "variation_values": null,
             "variations": [
-                {"name": "20cm", "price": 220, "values": {"size": "20cm"}},
-                {"name": "30cm", "price": 320, "sale_price": 280, "values": {"size": "30cm"}},
-                {"name": "40cm", "price": 420, "values": {"size": "40cm"}}
+                {"name": "20cm", "price": 220, "external_id": "1011", "values": {"size": "20cm"}},
+                {"name": "30cm", "price": 320, "sale_price": 280, "external_id": "1012", "values": {"size": "30cm"}},
+                {"name": "40cm", "price": 420, "external_id": "1013", "values": {"size": "40cm"}}
             ],
             "is_available": true,
             "sort_order": 1
