@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Waiter24 - export WooCommerce
  * Description: Export WooCommerce products to JSON on schedule or manually, push them to the Waiter24 import endpoint, and manage a frontend chat widget.
- * Version: 1.3.0
+ * Version: 1.7.0
  * Author: Developer
  * Requires Plugins: woocommerce
  * Text Domain: waiter24-export
@@ -18,15 +18,16 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.3.0' );
+define( 'W24_EXPORT_VERSION', '1.7.0' );
 define( 'W24_EXPORT_DIR', WP_CONTENT_DIR . '/uploads/waiter24' );
 define( 'W24_EXPORT_FILE', W24_EXPORT_DIR . '/export.json' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
 define( 'W24_OPTION_KEY', 'waiter24_export_settings' );
-// Local testing build — points at the OSPanel dev host. For production set these
-// to https://waiter24.ai and flip sslverify (in w24_save_and_notify) back to true.
-define( 'W24_IMPORT_URL', 'http://waiter.loc/api/integrations/menu' );
-define( 'W24_WIDGET_URL', 'http://waiter.loc/widget.js' );
+// Production Waiter24 host. For local testing against an OSPanel dev host
+// (http://waiter.loc) override these and set sslverify => false in
+// w24_save_and_notify(), since the dev host has no certificate.
+define( 'W24_IMPORT_URL', 'https://waiter24.ai/api/integrations/menu' );
+define( 'W24_WIDGET_URL', 'https://waiter24.ai/widget.js' );
 define( 'W24_DEMO_PARAM', 'waiter24_demo' ); // GET param that reveals the widget in demo mode
 
 /**
@@ -137,6 +138,19 @@ function w24_add_admin_menu() {
     );
 }
 
+/**
+ * "Settings" quick link on the Plugins list page row.
+ */
+add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), 'w24_plugin_action_links' );
+
+function w24_plugin_action_links( $links ) {
+    $settings_link = '<a href="' . esc_url( admin_url( 'admin.php?page=waiter24-export' ) ) . '">'
+        . esc_html__( 'Settings', 'waiter24-export' )
+        . '</a>';
+    array_unshift( $links, $settings_link );
+    return $links;
+}
+
 function w24_register_settings() {
     register_setting( 'waiter24_settings_group', W24_OPTION_KEY, 'w24_sanitize_settings' );
 }
@@ -181,6 +195,7 @@ function w24_render_settings_page() {
 
     // Handle manual export
     $manual_result = '';
+    $manual_error  = '';
     if (
         isset( $_POST['waiter24_manual_export'] )
         && check_admin_referer( 'waiter24_manual_export_action', 'waiter24_manual_export_nonce' )
@@ -189,7 +204,12 @@ function w24_render_settings_page() {
             wp_die( esc_html__( 'You do not have sufficient permissions.', 'waiter24-export' ) );
         }
         $result = w24_run_export();
-        $manual_result = true === $result ? 'success' : 'error';
+        if ( true === $result ) {
+            $manual_result = 'success';
+        } else {
+            $manual_result = 'error';
+            $manual_error  = is_string( $result ) ? $result : '';
+        }
     }
 
     $settings       = w24_get_settings();
@@ -216,7 +236,13 @@ function w24_render_settings_page() {
             <div class="notice notice-error is-dismissible">
                 <p>
                     <strong><?php esc_html_e( 'Export failed.', 'waiter24-export' ); ?></strong>
-                    <?php esc_html_e( 'Make sure WooCommerce is active and products exist.', 'waiter24-export' ); ?>
+                    <?php
+                    if ( '' !== $manual_error ) {
+                        echo esc_html( $manual_error );
+                    } else {
+                        esc_html_e( 'Make sure WooCommerce is active and products exist.', 'waiter24-export' );
+                    }
+                    ?>
                 </p>
             </div>
         <?php endif; ?>
@@ -262,7 +288,7 @@ function w24_render_settings_page() {
                             placeholder="<?php esc_attr_e( 'Enter import token', 'waiter24-export' ); ?>"
                         />
                         <p class="description">
-                            <?php esc_html_e( 'Secret token from your Waiter24 dashboard (Site Settings → Automatic menu import). Authenticates the menu push.', 'waiter24-export' ); ?>
+                            <?php esc_html_e( 'The 48-character Import Token from your Waiter24 dashboard (Widget → Menu auto-import tab). This is NOT the Unique (widget) Key above — using the wrong value returns a 401 error.', 'waiter24-export' ); ?>
                         </p>
                     </td>
                 </tr>
@@ -367,6 +393,10 @@ function w24_render_settings_page() {
 
         <!-- Manual Export -->
         <h2><?php esc_html_e( 'Manual Export', 'waiter24-export' ); ?></h2>
+        <p class="description" style="max-width:640px">
+            <strong><?php esc_html_e( 'Note:', 'waiter24-export' ); ?></strong>
+            <?php esc_html_e( 'The export replaces your primary Waiter24 menu (the one marked with a star). Items missing from this store are hidden, not deleted.', 'waiter24-export' ); ?>
+        </p>
         <form method="post">
             <?php wp_nonce_field( 'waiter24_manual_export_action', 'waiter24_manual_export_nonce' ); ?>
             <p>
@@ -431,12 +461,12 @@ add_action( W24_CRON_HOOK, 'w24_run_export' );
 /**
  * Main export function.
  *
- * @return bool true on success, false on failure.
+ * @return true|string true on success, or a human-readable error message.
  */
 function w24_run_export() {
     // Verify WooCommerce is active
     if ( ! class_exists( 'WooCommerce' ) ) {
-        return false;
+        return __( 'WooCommerce is not active.', 'waiter24-export' );
     }
 
     // Ensure directory exists
@@ -456,7 +486,6 @@ function w24_run_export() {
     $site_config = array(
         'platform_preset'               => 'woocommerce',
         'cart_url'                      => wc_get_cart_url(),
-        'cart_counter_selector'         => '.cart-contents .count',
         'add_button_selector'           => '.single_add_to_cart_button',
         'qty_selector'                  => '.quantity input.qty',
         'variations_container_selector' => '.variations',
@@ -467,6 +496,10 @@ function w24_run_export() {
         // installs). The widget POSTs product_id/quantity here and refreshes
         // the mini-cart from the returned fragments.
         'ajax_add_url'                  => WC_AJAX::get_endpoint( 'add_to_cart' ),
+        // Read-only cart endpoint (WooCommerce Store API, core since WC 6.6) —
+        // lets the chat widget see what's already in the guest's cart for
+        // cart-aware upsell. Toggle lives in the tenant panel (off by default).
+        'cart_read_url'                 => rest_url( 'wc/store/v1/cart' ),
     );
 
     // ------------------------------------------
@@ -541,8 +574,20 @@ function w24_run_export() {
         }
 
         // --- Photo ---
+        // Export the "medium" thumbnail rather than the full-size original: the
+        // widget renders dish photos small, so the lighter file loads faster with
+        // no visible quality loss. WordPress falls back to the full size when the
+        // 'medium' image was never generated. Filterable so a site owner can pick
+        // another registered size (e.g. 'woocommerce_thumbnail' or 'large').
         $image_id  = $product->get_image_id();
-        $photo_url = $image_id ? wp_get_attachment_url( $image_id ) : null;
+        $photo_url = null;
+        if ( $image_id ) {
+            $image_size = apply_filters( 'waiter24_export_image_size', 'medium', $product );
+            $photo_url  = wp_get_attachment_image_url( $image_id, $image_size );
+            if ( ! $photo_url ) {
+                $photo_url = wp_get_attachment_url( $image_id );
+            }
+        }
 
         // --- Product URL ---
         $product_url = get_permalink( $product_id );
@@ -680,13 +725,14 @@ function w24_run_export() {
  * Save data to file and push it to the Waiter24 import endpoint.
  *
  * @param array $data Data to write.
- * @return bool true when the push succeeded (HTTP 2xx).
+ * @return true|string true when the push succeeded (HTTP 2xx), otherwise a
+ *                     human-readable error message.
  */
 function w24_save_and_notify( $data ) {
     $json = wp_json_encode( $data, JSON_UNESCAPED_UNICODE );
 
     if ( false === $json ) {
-        return false;
+        return __( 'Failed to encode the menu as JSON.', 'waiter24-export' );
     }
 
     // Keep a local copy for debugging / inspection.
@@ -697,12 +743,12 @@ function w24_save_and_notify( $data ) {
     $import_token  = $settings['import_token'];
 
     if ( empty( $import_token ) ) {
-        return false; // not configured yet — nothing to push to
+        return __( 'Import Token is empty. Paste it from the Menu auto-import tab in your Waiter24 dashboard.', 'waiter24-export' );
     }
 
     $response = wp_remote_post( W24_IMPORT_URL, array(
         'timeout'   => 30,
-        'sslverify' => false, // local dev host has no TLS cert; set true for production HTTPS
+        'sslverify' => true,
         'headers'   => array(
             'Authorization' => 'Bearer ' . $import_token,
             'Content-Type'  => 'application/json',
@@ -712,10 +758,112 @@ function w24_save_and_notify( $data ) {
     ) );
 
     if ( is_wp_error( $response ) ) {
-        return false;
+        /* translators: %s: connection error message. */
+        return sprintf( __( 'Could not reach Waiter24: %s', 'waiter24-export' ), $response->get_error_message() );
     }
 
     $code = (int) wp_remote_retrieve_response_code( $response );
 
-    return $code >= 200 && $code < 300;
+    if ( $code >= 200 && $code < 300 ) {
+        return true;
+    }
+
+    if ( 401 === $code || 403 === $code ) {
+        return __( 'Authentication failed (HTTP 401/403). Check that the Import Token is correct — it is NOT the Unique (widget) Key.', 'waiter24-export' );
+    }
+
+    $body = wp_remote_retrieve_body( $response );
+    /* translators: 1: HTTP status code, 2: response body excerpt. */
+    return sprintf( __( 'Import endpoint returned HTTP %1$d: %2$s', 'waiter24-export' ), $code, mb_substr( (string) $body, 0, 300 ) );
+}
+
+/**
+ * =============================================
+ *  ADD-ONS (Waiter24 quantity-priced dish extras)
+ * =============================================
+ * The chat widget's native add-to-cart AJAX call (wc-ajax=add_to_cart) gains
+ * one additive POST field, `waiter24_addons` — a JSON array of
+ * {name, price, qty}. WooCommerce's own handler only reads
+ * product_id/quantity/variation_id by default, so these three filters are
+ * what actually attach the add-ons to the cart line: stash them as cart item
+ * data, fold their price into the line total, and display them under the
+ * line item in cart/checkout. See docs/addons.md in the main waiter-saas repo
+ * for the full contract (also implemented for Magento 2 and Shopware).
+ */
+add_filter( 'woocommerce_add_cart_item_data', 'w24_attach_addons_to_cart_item', 10, 2 );
+
+function w24_attach_addons_to_cart_item( $cart_item_data, $product_id ) {
+    if ( empty( $_POST['waiter24_addons'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- read-only cart line metadata, mirrors core's own handling of $_POST['quantity']
+        return $cart_item_data;
+    }
+
+    $decoded = json_decode( wp_unslash( $_POST['waiter24_addons'] ), true ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+
+    if ( ! is_array( $decoded ) ) {
+        return $cart_item_data;
+    }
+
+    $addons = array();
+    foreach ( $decoded as $a ) {
+        if ( empty( $a['name'] ) ) {
+            continue;
+        }
+        $addons[] = array(
+            'name'  => sanitize_text_field( (string) $a['name'] ),
+            'price' => isset( $a['price'] ) ? (float) $a['price'] : 0,
+            'qty'   => isset( $a['qty'] ) ? max( 1, (int) $a['qty'] ) : 1,
+        );
+    }
+
+    if ( ! empty( $addons ) ) {
+        // Nothing else needed to keep this a distinct cart line: WooCommerce
+        // hashes the full cart_item_data (via generate_cart_id()) to decide
+        // whether an add matches an existing line, so a different add-on
+        // combination already produces a different line automatically —
+        // and an identical one still correctly merges/increments.
+        $cart_item_data['waiter24_addons'] = $addons;
+    }
+
+    return $cart_item_data;
+}
+
+add_filter( 'woocommerce_before_calculate_totals', 'w24_apply_addons_price', 20 );
+
+function w24_apply_addons_price( $cart ) {
+    if ( is_admin() && ! defined( 'DOING_AJAX' ) ) {
+        return;
+    }
+
+    foreach ( $cart->get_cart() as $cart_item ) {
+        if ( empty( $cart_item['waiter24_addons'] ) ) {
+            continue;
+        }
+
+        $addon_total = 0.0;
+        foreach ( $cart_item['waiter24_addons'] as $addon ) {
+            $addon_total += (float) $addon['price'] * (int) $addon['qty'];
+        }
+
+        // get_price() (not get_regular_price()) so an active sale is still
+        // honoured — add-ons stack on top of whatever the guest actually pays.
+        $base_price = (float) $cart_item['data']->get_price();
+        $cart_item['data']->set_price( $base_price + $addon_total );
+    }
+}
+
+add_filter( 'woocommerce_get_item_data', 'w24_display_addons_in_cart', 10, 2 );
+
+function w24_display_addons_in_cart( $item_data, $cart_item ) {
+    if ( empty( $cart_item['waiter24_addons'] ) ) {
+        return $item_data;
+    }
+
+    foreach ( $cart_item['waiter24_addons'] as $addon ) {
+        $item_data[] = array(
+            'name'  => sanitize_text_field( $addon['name'] ),
+            'value' => $addon['qty'] > 1 ? sprintf( '×%d', (int) $addon['qty'] ) : ' ',
+        );
+    }
+
+    return $item_data;
 }
