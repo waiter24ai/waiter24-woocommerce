@@ -78,8 +78,8 @@ msgstr "Mode de stock simplifié"
 msgid "Always mark all products as in-stock (ignore real stock data)"
 msgstr "Toujours marquer tous les produits comme en stock (ignorer les données de stock réelles)"
 
-msgid "When enabled: stock_status = true and qty = false for every product. When disabled: real WooCommerce stock values are exported."
-msgstr "Lorsqu'il est activé : stock_status = true et qty = false pour chaque produit. Lorsqu'il est désactivé : les valeurs de stock réelles de WooCommerce sont exportées."
+msgid "When enabled: every product is exported as available, ignoring real stock. When disabled: real WooCommerce stock availability is used."
+msgstr "Lorsqu'il est activé : chaque produit est exporté comme disponible, en ignorant le stock réel. Lorsqu'il est désactivé : la disponibilité réelle du stock WooCommerce est utilisée."
 
 msgid "Save Settings"
 msgstr "Enregistrer les paramètres"
@@ -95,3 +95,54 @@ msgstr "Prochaine exportation programmée :"
 
 msgid "Last export file:"
 msgstr "Dernier fichier d'exportation :"
+
+msgid "Import Token"
+msgstr "Jeton d'import"
+
+msgid "Enter import token"
+msgstr "Saisissez le jeton d'import"
+
+msgid "Public widget key — used to load the chat widget on your storefront."
+msgstr "Clé publique du widget — sert à charger le chat sur votre boutique."
+
+msgid "The 48-character Import Token from your Waiter24 dashboard (Widget → Menu auto-import tab). This is NOT the Unique (widget) Key above — using the wrong value returns a 401 error."
+msgstr "Le jeton d'import de 48 caractères depuis votre tableau de bord Waiter24 (Widget → onglet « Import auto du menu »). Ce n'est PAS la clé Unique (widget) ci-dessus — une mauvaise valeur renvoie une erreur 401."
+
+msgid "Note:"
+msgstr "Remarque :"
+
+msgid "The export replaces your primary Waiter24 menu (the one marked with a star). Items missing from this store are hidden, not deleted."
+msgstr "L'export remplace votre menu principal Waiter24 (celui marqué d'une étoile). Les articles absents de cette boutique sont masqués, pas supprimés."
+
+msgid "WooCommerce is not active."
+msgstr "WooCommerce n'est pas actif."
+
+msgid "Failed to encode the menu as JSON."
+msgstr "Échec de l'encodage du menu en JSON."
+
+msgid "Import Token is empty. Paste it from the Menu auto-import tab in your Waiter24 dashboard."
+msgstr "Le jeton d'import est vide. Collez-le depuis l'onglet « Import auto du menu » de votre tableau de bord Waiter24."
+
+msgid "Could not reach Waiter24: %s"
+msgstr "Impossible de joindre Waiter24 : %s"
+
+msgid "Authentication failed (HTTP 401/403). Check that the Import Token is correct — it is NOT the Unique (widget) Key."
+msgstr "Échec de l'authentification (HTTP 401/403). Vérifiez que le jeton d'import est correct — ce n'est PAS la clé Unique (widget)."
+
+msgid "Import endpoint returned HTTP %1$d: %2$s"
+msgstr "Le point de terminaison d'import a renvoyé HTTP %1$d : %2$s"
+
+msgid "Demo Mode"
+msgstr "Mode démo"
+
+msgid "Show the chat widget only to visitors who arrive via the demo link"
+msgstr "Afficher le widget de chat uniquement aux visiteurs qui arrivent via le lien de démo"
+
+msgid "When enabled, the widget stays hidden for regular visitors and appears only on URLs carrying the \"%s\" parameter. The parameter is then remembered for the browsing session and re-applied to links the assistant opens, so the chat stays visible while you click around."
+msgstr "Lorsque cette option est activée, le widget reste masqué pour les visiteurs ordinaires et n'apparaît que sur les URL contenant le paramètre « %s ». Le paramètre est ensuite mémorisé pour la session de navigation et réappliqué aux liens que l'assistant ouvre, afin que le chat reste visible pendant la navigation."
+
+msgid "Open demo:"
+msgstr "Ouvrir la démo :"
+
+msgid "Settings"
+msgstr "Réglages"
