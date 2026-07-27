@@ -1,0 +1,17 @@
+# Files that must never end up inside the distributed plugin ZIP or in the
+# WordPress.org trunk/. Consumed by `wp dist-archive` and mirrored by
+# bin/build-zip.ps1, which builds the ZIP from an explicit allow-list instead.
+.git
+.gitignore
+.distignore
+.github
+.wordpress-org
+README.md
+PUBLISHING.md
+bin
+build
+examples
+node_modules
+vendor
+*.log
+*.zip

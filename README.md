@@ -1,34 +1,87 @@
-# Waiter24 — WooCommerce plugin (`waiter24-export`)
+# Waiter24 AI Assistant for WooCommerce
 
-Exports the WooCommerce catalog to a Waiter24 tenant and embeds the AI chat
-widget. This is the canonical, version-controlled copy of the plugin that runs
-inside a WordPress/WooCommerce store.
+Developer documentation for the WordPress plugin that syncs a WooCommerce
+catalog to a Waiter24 tenant and embeds the AI chat widget. This is the
+canonical, version-controlled copy.
+
+> **User-facing documentation lives in [`readme.txt`](readme.txt)** — that is the
+> file WordPress.org renders on the plugin page. Keep the two in sync: the
+> changelog, the version and the feature list appear in both.
+>
+> **Releasing:** see [`PUBLISHING.md`](PUBLISHING.md).
 
 Uses the shared import endpoint (`POST /api/integrations/menu`, Bearer = tenant
 import token) and the same JSON schema as the Shopify, Magento and Shopware
 integrations (see [`examples/menu-import-sample.json`](examples/menu-import-sample.json)).
 
+| | |
+|---|---|
+| WordPress.org slug | `waiter24-ai-assistant-for-woocommerce` |
+| Text domain | `waiter24-ai-assistant-for-woocommerce` — **must** equal the slug |
+| Main file | `waiter24-ai-assistant-for-woocommerce.php` |
+| Admin page slug | `waiter24-export` (kept from earlier versions; existing installs have it bookmarked) |
+| Option keys | `waiter24_export_settings`, `waiter24_export_last_run` |
+| Cron hook | `waiter24_scheduled_export` |
+| License | GPLv2 or later |
+
 ## What it does
 
-- **Export** (`w24_run_export`): reads published products and builds the neutral
-  menu JSON (categories/subcategories, variations, sale prices, stock,
-  WooCommerce cart selectors in `site_config`).
-- **Push** (`w24_save_and_notify`): writes a local copy and `POST`s the JSON to
-  the import endpoint with `Authorization: Bearer <import_token>`. Failures are
-  surfaced on the settings page with the endpoint's own message (a 401 usually
-  means the Import Token and the Unique Key were swapped).
+- **Export** (`w24_run_export` → `w24_build_item`): reads published products in
+  pages of 200 and builds the neutral menu JSON (categories/subcategories,
+  variations, sale prices, stock, WooCommerce cart selectors in `site_config`).
+  Paging is what keeps a multi-thousand-product catalog from exhausting memory.
+- **Push** (`w24_save_and_notify`): `POST`s the JSON to the import endpoint with
+  `Authorization: Bearer <import_token>`. The outcome (time, product count,
+  error message) is stored in `waiter24_export_last_run` and shown on the
+  settings page — a 401 usually means the Import Token and the Unique Key were
+  swapped.
 - **Sync**: scheduled via WP-Cron (daily / weekly / monthly) plus a manual
-  **Export Now** button.
-- **Widget**: injects `widget.js` with the public widget key before `</body>`.
+  **Export Now** button. The schedule is created one hour out, never at `time()`,
+  so activation cannot fire an export before the token has been entered.
+- **Widget**: enqueues `widget.js` with the public widget key in the footer;
+  `script_loader_tag` adds `defer`, `data-key` and (in demo mode)
+  `data-demo-param`.
 - **Site cart**: the export announces `ajax_add_url` (WC AJAX `add_to_cart`) and
   `cart_read_url` (Store API `wc/store/v1/cart`) in `site_config`, so the chat
   widget adds to — and reads — the real WooCommerce cart with no page reload.
-- **Add-ons**: quantity-priced dish extras ride one additive POST field,
-  `waiter24_addons`; three filters attach them to the cart line, fold their
-  price into the line total and display them under the item. See
-  `docs/addons.md` in the main waiter-saas repo.
+- **Add-ons**: quantity-priced extras ride one additive POST field,
+  `waiter24_addons`. See `docs/addons.md` in the main waiter-saas repo for the
+  cross-platform contract.
 
-## Settings (WooCommerce → Waiter24 Export Woo)
+## Add-on price handling (read before touching it)
+
+Add-on `{name, price, qty}` triples arrive **from the shopper's browser** and are
+untrusted. `w24_sanitize_addons()` is the only gate:
+
+- prices are clamped to `>= 0` — a negative price would discount the cart line
+  and let a visitor check out below list price;
+- `qty` is clamped to 1–99, names to 120 characters, and the list to 20 entries
+  per line, so a crafted request cannot bloat the cart session;
+- everything is re-normalized on session load, because a session may hold data
+  written by an older version.
+
+The residual limitation: the plugin has no local add-on catalog to compare
+against, so a shopper can still *understate* an add-on's price. A store that
+cares can validate against its own source of truth via the
+`waiter24_cart_line_addons` filter. Authoritative validation for orders placed
+through Waiter24 itself happens server-side (`sanitizeAddonPrices()`).
+
+The line price is set **absolutely** from `w24_base_price` (stashed once per
+request in `woocommerce_add_cart_item` / `woocommerce_get_cart_item_from_session`),
+never additively — `woocommerce_before_calculate_totals` can fire several times
+in one request, and `get_price() + addons` compounds the surcharge on each pass.
+
+## Filters
+
+| Filter | Default | Purpose |
+|--------|---------|---------|
+| `waiter24_export_image_size` | `medium` | Registered image size used for `photo_url`. |
+| `waiter24_export_batch_size` | `200` | Products fetched per page during export (clamped 1–500). |
+| `waiter24_cart_line_addons` | — | Accept/reject/reprice add-ons before they touch a cart line. |
+| `waiter24_max_addons_per_line` | `20` | Cap on add-ons per cart line. |
+| `waiter24_max_addon_price` | `0` (no cap) | Optional per-add-on price ceiling. |
+
+## Settings (WooCommerce → Waiter24 AI Assistant)
 
 | Field | Meaning |
 |-------|---------|
@@ -36,66 +89,61 @@ integrations (see [`examples/menu-import-sample.json`](examples/menu-import-samp
 | **Import Token** | Secret token (Waiter24 dashboard → Widget Settings → Menu auto-import). Authenticates the menu push. |
 | **Export Period** | WP-Cron frequency. |
 | **Enable Chat Widget** | Inject the widget on the storefront. |
-| **Demo Mode** | Hide the widget from regular visitors; it loads only on URLs carrying the `?waiter24_demo=1` parameter. The settings page shows a ready demo link (opens in a new tab). The parameter is remembered for the browsing session and re-applied to in-chat links, so the chat stays visible while clicking around. |
+| **Demo Mode** | Hide the widget from regular visitors; it loads only on URLs carrying `?waiter24_demo=1`. The settings page shows a ready demo link. The parameter is remembered for the browsing session and re-applied to in-chat links. |
 | **Simple Stock Mode** | Always export products as in-stock. |
 
 ## Requirements
 
-- WordPress 6.0+ with **WooCommerce 7.0+** active
+- WordPress 6.5+ (`Requires Plugins` needs 6.5) with **WooCommerce 7.0+** active
 - PHP 7.4+ (8.x recommended)
 - Outbound HTTPS from the store to `https://waiter24.ai`
 
-## Install
+## Local development
 
-1. Copy this repository into `wp-content/plugins/waiter24-export/` (so
-   `waiter24-export.php` sits directly inside it — not in a nested subfolder).
-   Alternatively, zip the folder and upload it via **Plugins → Add New → Upload
-   Plugin**.
-2. **Plugins → Installed Plugins → Waiter24 — export WooCommerce → Activate.**
-3. Open **WooCommerce → Waiter24 Export Woo** and fill in:
-   - **Unique Key** — the public widget key (Waiter24 dashboard → Widget Settings).
-   - **Import Token** — the secret token (Widget Settings → Menu auto-import).
-4. Press **Export Now** to push the catalog immediately and verify the
-   connection; the WP-Cron schedule keeps it in sync afterwards.
-5. Tick **Enable Chat Widget** to load the assistant on the storefront.
-
-## Configuration constants
-
-`W24_IMPORT_URL` and `W24_WIDGET_URL` (top of `waiter24-export.php`) point at the
-Waiter24 host. **This build ships production defaults** — both constants point at
-`https://waiter24.ai` and TLS verification is on (`sslverify => true` in
-`w24_save_and_notify()`).
+`W24_IMPORT_URL` and `W24_WIDGET_URL` (top of the main file) point at the
+Waiter24 host. **This build ships production defaults** — both point at
+`https://waiter24.ai` and TLS verification is on (`sslverify => true`).
 
 For local testing against an OSPanel dev host, override both constants to
 `http://waiter.loc` and set `sslverify => false`, since the dev host has no
-certificate. Don't ship that build to a store.
+certificate. Never ship that build.
+
+## Repo layout
+
+```
+waiter24-ai-assistant-for-woocommerce.php   the plugin
+uninstall.php                               delete-time cleanup
+readme.txt                                  WordPress.org page (user-facing)
+LICENSE                                     GPLv2
+languages/                                  .pot + de/fr/uk .po/.mo
+bin/build-zip.php                           release ZIP builder
+.wordpress-org/                             directory icon/banner sources + specs
+examples/                                   sample import payload (not shipped)
+PUBLISHING.md                               submission + release runbook
+```
+
+Only the first five entries end up in the distributed ZIP — see
+[`.distignore`](.distignore) and `bin/build-zip.php`.
 
 ## Changelog
 
-- **1.7.0** — **Settings link** on the Plugins list row (jumps straight to
-  WooCommerce → Waiter24 Export Woo). **Uninstall cleanup** (`uninstall.php`):
-  deleting the plugin now removes `waiter24_export_settings`, the cron schedule
-  and the local export file — previously the saved Unique Key / Import Token
-  survived a delete-and-reinstall and reappeared pre-filled in the form.
-- **1.6.0** — **add-ons**: quantity-priced dish extras sent as `waiter24_addons`
-  alongside the add-to-cart call, attached to the cart line, priced into the line
-  total and rendered under the item in cart/checkout. Drop the dead
-  `cart_counter_selector` from the exported `site_config` (the widget never read
-  it).
-- **1.5.0** — **site-cart integration**: export `ajax_add_url` (resolved via
-  `WC_AJAX::get_endpoint()` so subdirectory installs work) and `cart_read_url`
-  (Store API) in `site_config`, letting the widget add to and read the real cart
-  without a reload. Surface import errors on the settings page instead of a
-  generic failure, warn that the export replaces the primary menu, and add
-  translations (de/fr/uk).
-- **1.4.0** — add **Demo Mode**: the widget loads only on URLs carrying the
-  `?waiter24_demo=1` parameter (with a ready demo link on the settings page),
-  letting you preview the assistant while keeping it hidden from shoppers.
-- **1.3.1** — drop the unused `stock_status` / `qty` item fields (not in the
-  import schema); Simple Stock Mode now drives the exported `is_available`
-  directly; default the endpoint/widget URLs to production and verify TLS on the
-  push (`sslverify => true`).
-- **1.2.0** — push the full catalog to `POST /api/integrations/menu` with a
-  Bearer **import token** (replaces the old `GET /export/?key=` notify); add the
-  Import Token setting; keep Unique Key as the public widget key.
-- **1.1.0** — file export + widget injection + `GET` notify.
+The user-facing changelog is maintained in [`readme.txt`](readme.txt) (that is
+what WordPress.org renders). Summary of the current release:
+
+- **1.8.0** — first WordPress.org release. Relicensed **GPLv2 or later**.
+  Security: client-supplied add-on prices are clamped so they can never discount
+  a cart line, with qty/name/count bounds. Fixed the add-on surcharge being
+  applied more than once per request. Add-ons are now copied onto the order line
+  item. HPOS compatibility declared. Widget moved to `wp_enqueue_script`. Export
+  paged for large catalogs. Stopped writing a catalog copy into
+  `wp-content/uploads/` (the settings page reports the last run instead). The
+  activation schedule no longer fires immediately, and cron rescheduling moved
+  out of the sanitize callback.
+- **1.7.0** — Settings link on the Plugins row; uninstall cleanup.
+- **1.6.0** — add-ons.
+- **1.5.0** — site-cart integration (`ajax_add_url`, `cart_read_url`), surfaced
+  import errors, de/fr/uk translations.
+- **1.4.0** — Demo Mode.
+- **1.3.1** — dropped unused item fields; production endpoints by default.
+- **1.2.0** — Bearer import-token push replaces the old `GET /export/?key=`.
+- **1.1.0** — file export + widget injection.
