@@ -1,5 +1,7 @@
 /vendor/
+/build/
 *.log
+*.zip
 .DS_Store
 .idea/
 .vscode/
