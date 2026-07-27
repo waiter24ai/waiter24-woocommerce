@@ -8,7 +8,12 @@ canonical, version-controlled copy.
 > file WordPress.org renders on the plugin page. Keep the two in sync: the
 > changelog, the version and the feature list appear in both.
 >
-> **Releasing:** see [`PUBLISHING.md`](PUBLISHING.md).
+> **Releasing:** the submission runbook (`PUBLISHING.md`) and the directory
+> assets (`.wordpress-org/` — icon, banner, screenshots) are **deliberately kept
+> out of this repository**, which is public and doubles as the plugin's download
+> location. They live alongside this checkout, untracked, and go straight into
+> the SVN `assets/` directory at release time. Ask the maintainer if you need
+> them.
 
 Uses the shared import endpoint (`POST /api/integrations/menu`, Bearer = tenant
 import token) and the same JSON schema as the Shopify, Magento and Shopware
@@ -117,13 +122,18 @@ readme.txt                                  WordPress.org page (user-facing)
 LICENSE                                     GPLv2
 languages/                                  .pot + de/fr/uk .po/.mo
 bin/build-zip.php                           release ZIP builder
-.wordpress-org/                             directory icon/banner sources + specs
 examples/                                   sample import payload (not shipped)
-PUBLISHING.md                               submission + release runbook
 ```
 
 Only the first five entries end up in the distributed ZIP — see
 [`.distignore`](.distignore) and `bin/build-zip.php`.
+
+Untracked, kept locally next to the checkout (see `.gitignore` for why):
+
+```
+.wordpress-org/                             directory icon/banner/screenshots
+PUBLISHING.md                               submission + release runbook
+```
 
 ## Changelog
 

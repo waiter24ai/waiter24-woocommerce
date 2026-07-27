@@ -5,3 +5,17 @@
 .DS_Store
 .idea/
 .vscode/
+
+# WordPress.org submission material — deliberately NOT in this repo.
+#
+# This repository is public and is what store owners are pointed at to download
+# the plugin, so the directory listing's assets (icon, banner, admin-panel
+# screenshots) and the internal submission runbook do not belong in it. They are
+# kept locally and copied straight into the SVN checkout's assets/ directory at
+# release time.
+#
+# readme.txt is intentionally NOT listed here: it is part of the plugin
+# distribution itself (it ships inside the ZIP and in SVN trunk/), so it stays
+# versioned.
+/.wordpress-org/
+/PUBLISHING.md
