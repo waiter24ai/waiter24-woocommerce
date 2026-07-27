@@ -131,10 +131,10 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 
 == Screenshots ==
 
-1. The settings page under WooCommerce → Waiter24 AI Assistant: keys, schedule, widget and demo toggles.
-2. Manual export result, with the number of products sent and the next scheduled run.
-3. The AI assistant answering a product question on the storefront.
-4. The assistant adding a product to the real WooCommerce cart, with the mini-cart updating.
+1. The settings page under WooCommerce → Waiter24 AI Assistant: both keys, the sync schedule, and the widget, demo and stock toggles.
+2. The assistant's opening screen on the storefront, offering the questions shoppers ask most.
+3. The assistant answering a question about current promotions, with matching products and their sale prices shown as cards.
+4. A product added to the real WooCommerce cart from inside the chat — the cart total in the site header updates without a page reload.
 
 == Changelog ==
 
@@ -148,7 +148,7 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 * Changed: large catalogs are exported in batches instead of loading every product object at once.
 * Changed: the export no longer writes a copy of the catalog into `wp-content/uploads/`. The settings page shows the last run's time, product count and outcome instead. Any leftover file is removed on uninstall.
 * Changed: the scheduled export is no longer created to fire immediately on activation (it would run before the Import Token was entered); rescheduling moved out of the settings sanitize callback.
-* Fixed: escaped HTML entity displayed literally in a settings description; duplicated space in the admin menu label.
+* Fixed: duplicated space in the admin menu label. The widget setting's description now describes where the script is actually loaded, matching the switch to `wp_enqueue_script`.
 
 = 1.7.0 =
 * "Settings" quick link on the Plugins list row.
