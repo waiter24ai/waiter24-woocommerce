@@ -4,7 +4,7 @@ Tags: ai, chatbot, ai assistant, product recommendations, live chat
 Requires at least: 6.5
 Requires PHP: 7.4
 Tested up to: 7.0
-Stable tag: 1.10.2
+Stable tag: 1.10.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -107,7 +107,7 @@ Every product with status "publish", including variable products with their avai
 
 = I have thousands of products and the export times out =
 
-It cannot any more. Since 1.10.0 "Export Now" only *starts* the export: the work is handed to Action Scheduler (the background queue that ships with WooCommerce) and the catalog goes out in batches of 50 products, each its own short request. The settings page shows the running count and the final result.
+It cannot any more. Since 1.10.0 "Export Now" only *starts* the export: the work is handed to Action Scheduler (the background queue that ships with WooCommerce) and the catalog goes out in small batches, each its own short request. A batch builds for about 12 seconds and sends whatever it managed, so however slow your hosting is, no single request runs long enough to be killed. The settings page shows "X of Y products exported" and the final result.
 
 If your site does not run background tasks at all (WP-Cron disabled, or loopback requests blocked by the host), the scheduled batch would simply stay "pending". That is covered too: when the queue has not moved the export for 15 seconds, the WordPress admin pushes the batches itself. Just stay in the admin until the counter stops — any admin page continues it, not only the plugin's own.
 
@@ -149,6 +149,12 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 4. A product added to the real WooCommerce cart from inside the chat — the cart total in the site header updates without a page reload.
 
 == Changelog ==
+
+= 1.10.3 =
+* Fixed: on slow hosting the export stopped part-way through — a fixed batch of 50 products took longer to build than PHP's `max_execution_time` allowed, so the request was killed before it could send anything. Batches are now bounded by time rather than by a product count: each one builds for about 12 seconds and sends whatever it managed, so a slow store simply sends fewer products per batch instead of failing. Filterable via `waiter24_export_batch_seconds`.
+* Fixed: a batch that died mid-request used to end the export silently. The admin now retries with a backoff — and since batches are time-boxed, the retry asks for less work than the attempt that failed.
+* Changed: the catalog is pinned to a list of product ids when the export starts, so products added or deleted while it runs cannot shift the paging and cause a product to be skipped (a skipped product would have been hidden when the import session closed).
+* Changed: progress now reads "120 of 480 products exported" instead of a bare running count.
 
 = 1.10.2 =
 * Fixed: the *scheduled* export was still dead on sites without working background tasks — it is a WP-Cron event, and WP-Cron was exactly what those sites do not run. An overdue schedule is now picked up on any WordPress admin page: the export starts there and the batches go out over background AJAX calls, so the catalog syncs roughly as often as the store owner signs in. No admin page is slowed down by it — the batches are not built during the page load.
@@ -205,6 +211,9 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 * Catalog export and chat-widget injection.
 
 == Upgrade Notice ==
+
+= 1.10.3 =
+Fixes exports that stopped part-way on slow hosting. Batches now adapt to how fast your store actually is.
 
 = 1.10.2 =
 Scheduled exports now also work on hosts with no working WP-Cron: they run from the WordPress admin instead of never running at all.

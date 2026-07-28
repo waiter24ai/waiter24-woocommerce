@@ -3,7 +3,7 @@
  * Plugin Name:          Waiter24 AI Assistant for WooCommerce
  * Plugin URI:           https://waiter24.ai/
  * Description:          Syncs your WooCommerce catalog to your Waiter24 account and adds the Waiter24 AI chat assistant to the storefront, so shoppers can ask questions and add products to the real WooCommerce cart from inside the chat.
- * Version:              1.10.2
+ * Version:              1.10.3
  * Requires at least:    6.5
  * Requires PHP:         7.4
  * Requires Plugins:     woocommerce
@@ -38,12 +38,13 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.10.2' );
+define( 'W24_EXPORT_VERSION', '1.10.3' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
 define( 'W24_CHUNK_HOOK', 'waiter24_export_chunk' ); // One background slice of a running export.
 define( 'W24_OPTION_KEY', 'waiter24_export_settings' );
 define( 'W24_LAST_RUN_KEY', 'waiter24_export_last_run' );
 define( 'W24_PROGRESS_KEY', 'waiter24_export_progress' );
+define( 'W24_QUEUE_KEY', 'waiter24_export_queue' ); // Product ids pinned when an export starts.
 // An export whose slices stopped arriving for this long is considered dead, so
 // Export Now works again after a crashed queue runner.
 define( 'W24_EXPORT_STALL_SECONDS', 600 );
@@ -142,6 +143,7 @@ function w24_deactivate() {
     }
 
     delete_option( W24_PROGRESS_KEY );
+    delete_option( W24_QUEUE_KEY );
 }
 
 /**
@@ -631,15 +633,7 @@ function w24_render_settings_page() {
             <p class="description" id="w24-export-progress">
                 <span class="spinner is-active" style="float:none;margin:0 4px 0 0"></span>
                 <strong><?php esc_html_e( 'Export in progress…', 'waiter24-ai-assistant-for-woocommerce' ); ?></strong>
-                <span id="w24-export-count">
-                    <?php
-                    printf(
-                        /* translators: %d: number of products sent so far. */
-                        esc_html( _n( '%d product sent so far.', '%d products sent so far.', (int) $progress['sent'], 'waiter24-ai-assistant-for-woocommerce' ) ),
-                        (int) $progress['sent']
-                    );
-                    ?>
-                </span>
+                <span id="w24-export-count"><?php echo esc_html( w24_progress_label( $progress ) ); ?></span>
                 <br />
                 <?php esc_html_e( 'Stay in the WordPress admin until the export finishes: if your site does not run background tasks, the admin pushes the batches itself.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
             </p>
@@ -796,6 +790,29 @@ function w24_start_export( $trigger = 'cron' ) {
         return __( 'An export is already running.', 'waiter24-ai-assistant-for-woocommerce' );
     }
 
+    // The catalog is pinned to a list of ids up front — one cheap id-only query,
+    // no product objects. Slices then walk that list by offset, which means a
+    // product added or deleted mid-export cannot shift the paging under us and
+    // make a slice skip (a skipped product would be hidden when the session
+    // closes, so this is worth the option write).
+    $ids = wc_get_products(
+        array(
+            'status'  => 'publish',
+            'limit'   => -1,
+            'return'  => 'ids',
+            'orderby' => 'ID',
+            'order'   => 'ASC',
+        )
+    );
+
+    $ids = is_array( $ids ) ? array_values( array_map( 'intval', $ids ) ) : array();
+
+    if ( empty( $ids ) ) {
+        return w24_record_run( __( 'No published products to export.', 'waiter24-ai-assistant-for-woocommerce' ), 0 );
+    }
+
+    update_option( W24_QUEUE_KEY, $ids, false );
+
     $session = w24_new_session_id();
 
     w24_set_progress(
@@ -804,6 +821,7 @@ function w24_start_export( $trigger = 'cron' ) {
             'session' => $session,
             'page'    => 1,
             'sent'    => 0,
+            'total'   => count( $ids ),
             'trigger' => 'manual' === $trigger ? 'manual' : 'cron',
             'driver'  => 'queue',
             'started' => time(),
@@ -830,17 +848,24 @@ function w24_start_export( $trigger = 'cron' ) {
 }
 
 /**
- * Export one slice of the catalog: read a page of products, push it, then queue
- * the next page — or close the session when the catalog runs out.
+ * Export one slice of the catalog: build as many products as fit in the slice's
+ * time budget, push them, then queue the next slice — or close the session when
+ * the catalog runs out.
+ *
+ * The budget is what makes this work everywhere. A fixed slice of N products is
+ * a bet on how fast the host is, and that bet is lost on shared hosting: a store
+ * that builds two products a second needs half a minute for fifty, which is
+ * exactly the `max_execution_time` PHP is usually given. So the slice is bounded
+ * by seconds, not by products — a slow host simply sends fewer per request.
  *
  * @param string $session    Import-session id shared by every slice of this run.
- * @param int    $page       1-based page of the product query.
+ * @param int    $sequence   1-based slice number, matched against the progress.
  * @param bool   $background Whether to queue the next slice (false = inline run).
  * @return bool Whether another slice is pending.
  */
-function w24_run_export_chunk( $session, $page, $background = true ) {
+function w24_run_export_chunk( $session, $sequence, $background = true ) {
     $progress = w24_export_progress();
-    $page     = max( 1, (int) $page );
+    $page     = max( 1, (int) $sequence );
 
     // A leftover action from a superseded (or cancelled) run must not resurrect
     // that run and interleave its slices with the current one. Neither may two
@@ -855,39 +880,54 @@ function w24_run_export_chunk( $session, $page, $background = true ) {
         return false;
     }
 
+    $queue = get_option( W24_QUEUE_KEY, array() );
+
+    if ( ! is_array( $queue ) || empty( $queue ) ) {
+        w24_set_progress( array( 'status' => 'error' ) + $progress );
+        w24_record_run( __( 'The export lost its product list. Start the export again.', 'waiter24-ai-assistant-for-woocommerce' ), (int) $progress['sent'] );
+
+        return false;
+    }
+
     $settings     = w24_get_settings();
     $simple_stock = ! empty( $settings['simple_stock_mode'] );
-    $per_page     = w24_chunk_size();
+    $max_items    = w24_chunk_size();
+    $budget       = w24_chunk_budget_seconds();
     $currency     = get_woocommerce_currency();
 
     wp_raise_memory_limit( 'admin' );
 
-    // Ordered by ID, which is unique and stable: paging over a non-unique key
-    // like menu_order can shuffle ties between queries and skip a product, and
-    // a product missed by every slice would be hidden when the session closes.
-    // Display order is carried by each item's own sort_order field anyway.
-    $products = wc_get_products(
-        array(
-            'status'  => 'publish',
-            'limit'   => $per_page,
-            'page'    => $page,
-            'orderby' => 'ID',
-            'order'   => 'ASC',
-        )
-    );
-
-    if ( ! is_array( $products ) ) {
-        $products = array();
+    // Best effort — plenty of hosts forbid it, which is precisely why the slice
+    // is time-boxed rather than trusting this to work.
+    if ( function_exists( 'set_time_limit' ) ) {
+        @set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- disabled on many hosts; the time budget below is the real guard.
     }
 
-    $items = array();
+    $offset  = (int) $progress['sent'];
+    $started = microtime( true );
+    $items   = array();
 
-    foreach ( $products as $product ) {
-        $items[] = w24_build_item( $product, $currency, $simple_stock );
+    // Stop on whichever comes first: the slice size, the time budget, or the end
+    // of the catalog. Always build at least one product, so an unusually slow
+    // product cannot stall the export forever.
+    while ( count( $items ) < $max_items && isset( $queue[ $offset + count( $items ) ] ) ) {
+        $product = wc_get_product( $queue[ $offset + count( $items ) ] );
+
+        if ( $product ) {
+            $items[] = w24_build_item( $product, $currency, $simple_stock );
+        } else {
+            // Deleted between the snapshot and now: skip it, but keep the offset
+            // moving or the export would stick on a hole in the list.
+            $items[] = null;
+        }
+
+        if ( ( microtime( true ) - $started ) >= $budget ) {
+            break;
+        }
     }
 
-    $fetched = count( $products );
-    unset( $products );
+    $consumed = count( $items );
+    $items    = array_values( array_filter( $items ) );
 
     $payload = array(
         'items'          => $items,
@@ -910,7 +950,9 @@ function w24_run_export_chunk( $session, $page, $background = true ) {
         return false;
     }
 
-    $sent = (int) $progress['sent'] + $fetched;
+    // The offset counts products consumed from the snapshot, including any that
+    // vanished from the store — otherwise the export would never reach the end.
+    $sent = $offset + $consumed;
 
     w24_set_progress(
         array(
@@ -918,14 +960,16 @@ function w24_run_export_chunk( $session, $page, $background = true ) {
             'session' => $session,
             'page'    => $page + 1,
             'sent'    => $sent,
+            'total'   => (int) $progress['total'],
             'trigger' => $progress['trigger'],
             'driver'  => $progress['driver'],
             'started' => $progress['started'],
         )
     );
 
-    // A short page means the catalog is exhausted.
-    if ( $fetched < $per_page ) {
+    // Nothing consumed means the list is exhausted (or a corrupt offset) — either
+    // way, carrying on would loop forever.
+    if ( $sent >= count( $queue ) || 0 === $consumed ) {
         w24_finalize_export( $session, $sent );
 
         return false;
@@ -992,6 +1036,26 @@ function w24_print_export_driver() {
             var nonce    = <?php echo wp_json_encode( wp_create_nonce( 'waiter24_export_step' ) ); ?>;
             var counter  = document.getElementById( 'w24-export-count' );
 
+            // A batch that dies mid-request — PHP's time limit, a gateway giving
+            // up — leaves no usable answer. Retrying is what gets the export past
+            // it: the batch is time-boxed, so the retry asks for less work than
+            // the attempt that failed. Backs off so a genuinely broken site is
+            // not hammered, and gives up loudly rather than stalling in silence.
+            var failures = 0;
+
+            function retry() {
+                failures++;
+
+                if ( failures > 8 ) {
+                    if ( counter ) {
+                        window.location.reload();
+                    }
+                    return;
+                }
+
+                setTimeout( step, Math.min( 30000, 3000 * failures ) );
+            }
+
             // Sequential, never on a timer: one call may spend a while pushing a
             // batch, and overlapping calls would race it.
             function step() {
@@ -1000,11 +1064,14 @@ function w24_print_export_driver() {
                 body.append( 'nonce', nonce );
 
                 fetch( endpoint, { method: 'POST', body: body, credentials: 'same-origin' } )
-                    .then( function ( r ) { return r.json(); } )
+                    .then( function ( r ) { return r.ok ? r.json() : null; } )
                     .then( function ( res ) {
-                        if ( ! res || ! res.success ) {
+                        if ( ! res || ! res.success || ! res.data ) {
+                            retry();
                             return;
                         }
+
+                        failures = 0;
 
                         if ( counter && res.data.label ) {
                             counter.textContent = res.data.label;
@@ -1023,7 +1090,7 @@ function w24_print_export_driver() {
                         // every few seconds.
                         setTimeout( step, res.data.driving ? 250 : 3000 );
                     } )
-                    .catch( function () { setTimeout( step, 5000 ); } );
+                    .catch( retry );
             }
 
             step();
@@ -1062,21 +1129,13 @@ function w24_ajax_export_step() {
 
     $last = get_option( W24_LAST_RUN_KEY, array() );
 
-    $sent = (int) $progress['sent'];
-
     wp_send_json_success(
         array(
             'status'  => $progress['status'],
-            'sent'    => $sent,
+            'sent'    => (int) $progress['sent'],
             'running' => ( 'running' === $progress['status'] ),
             'driving' => ( 'page' === $progress['driver'] ),
-            // Pluralized here rather than in the browser: languages with more
-            // than two plural forms cannot be served by a JS string swap.
-            'label'   => sprintf(
-                /* translators: %d: number of products sent so far. */
-                _n( '%d product sent so far.', '%d products sent so far.', $sent, 'waiter24-ai-assistant-for-woocommerce' ),
-                $sent
-            ),
+            'label'   => w24_progress_label( $progress ),
             'message' => ( is_array( $last ) && ! empty( $last['message'] ) ) ? (string) $last['message'] : '',
         )
     );
@@ -1105,6 +1164,7 @@ function w24_finalize_export( $session, $sent ) {
     $progress['session'] = $session;
 
     w24_set_progress( $progress );
+    delete_option( W24_QUEUE_KEY );
 
     return w24_record_run( $result, (int) $sent );
 }
@@ -1116,13 +1176,27 @@ function w24_finalize_export( $session, $sent ) {
  * @return int
  */
 function w24_chunk_size() {
-    // 50 keeps one slice comfortably inside even a slow shared host's request
-    // limit — the settings page runs slices itself when the site's background
-    // queue is dead, and those go through the same gateway that timed out on
-    // the old single-shot export.
+    // The ceiling, not the target: the time budget below usually stops a slice
+    // long before this on modest hosting.
     $size = (int) apply_filters( 'waiter24_export_batch_size', 50 );
 
-    return max( 10, min( 500, $size ) );
+    return max( 1, min( 500, $size ) );
+}
+
+/**
+ * How long one slice may spend building products.
+ *
+ * Sized against the limits these requests actually run under: PHP's
+ * `max_execution_time` is commonly 30 seconds and the gateway in front of it is
+ * often 60, so a 12-second build plus the push to Waiter24 leaves generous room
+ * even when the host is having a bad minute.
+ *
+ * @return float
+ */
+function w24_chunk_budget_seconds() {
+    $budget = (float) apply_filters( 'waiter24_export_batch_seconds', 12 );
+
+    return max( 2, min( 120, $budget ) );
 }
 
 /**
@@ -1146,6 +1220,7 @@ function w24_export_progress() {
         'session' => '',
         'page'    => 1,
         'sent'    => 0,
+        'total'   => 0,
         'trigger' => 'cron',
         'driver'  => 'queue', // queue | page — who is pushing the slices.
         'started' => 0,
@@ -1155,6 +1230,33 @@ function w24_export_progress() {
     $saved = get_option( W24_PROGRESS_KEY, array() );
 
     return is_array( $saved ) ? array_merge( $defaults, $saved ) : $defaults;
+}
+
+/**
+ * "120 of 480 products exported" — built here rather than in the browser, since
+ * languages with more than two plural forms cannot be served by a JS swap.
+ *
+ * @param array $progress Progress as returned by w24_export_progress().
+ * @return string
+ */
+function w24_progress_label( $progress ) {
+    $sent  = (int) $progress['sent'];
+    $total = (int) $progress['total'];
+
+    if ( $total > 0 ) {
+        return sprintf(
+            /* translators: 1: products exported so far, 2: products in the catalog. */
+            __( '%1$d of %2$d products exported.', 'waiter24-ai-assistant-for-woocommerce' ),
+            $sent,
+            $total
+        );
+    }
+
+    return sprintf(
+        /* translators: %d: number of products sent so far. */
+        _n( '%d product sent so far.', '%d products sent so far.', $sent, 'waiter24-ai-assistant-for-woocommerce' ),
+        $sent
+    );
 }
 
 /**

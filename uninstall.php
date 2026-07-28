@@ -20,6 +20,7 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 delete_option( 'waiter24_export_settings' );
 delete_option( 'waiter24_export_last_run' );
 delete_option( 'waiter24_export_progress' );
+delete_option( 'waiter24_export_queue' );
 
 wp_clear_scheduled_hook( 'waiter24_scheduled_export' );
 
