@@ -3,7 +3,7 @@
 # This file is distributed under the same license as the plugin.
 msgid ""
 msgstr ""
-"Project-Id-Version: Waiter24 AI Assistant for WooCommerce 1.10.3\n"
+"Project-Id-Version: Waiter24 AI Assistant for WooCommerce 1.11.0\n"
 "Report-Msgid-Bugs-To: https://waiter24.ai/\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: Waiter24 <support@waiter24.ai>\n"
@@ -34,7 +34,7 @@ msgid "Settings"
 msgstr "Налаштування"
 
 #: waiter24-ai-assistant-for-woocommerce.php:382
-#: waiter24-ai-assistant-for-woocommerce.php:1108
+#: waiter24-ai-assistant-for-woocommerce.php:1221
 msgid "You do not have sufficient permissions to access this page."
 msgstr "У вас недостатньо прав для доступу до цієї сторінки."
 
@@ -239,7 +239,7 @@ msgid "WooCommerce is not active."
 msgstr "WooCommerce не активний."
 
 #: waiter24-ai-assistant-for-woocommerce.php:784
-#: waiter24-ai-assistant-for-woocommerce.php:1527
+#: waiter24-ai-assistant-for-woocommerce.php:1640
 msgid ""
 "Import Token is empty. Paste it from the Menu auto-import tab in your "
 "Waiter24 dashboard."
@@ -251,19 +251,19 @@ msgstr ""
 msgid "An export is already running."
 msgstr "Експорт уже виконується."
 
-#: waiter24-ai-assistant-for-woocommerce.php:811
+#: waiter24-ai-assistant-for-woocommerce.php:801
 msgid "No published products to export."
 msgstr "Немає опублікованих товарів для експорту."
 
-#: waiter24-ai-assistant-for-woocommerce.php:887
+#: waiter24-ai-assistant-for-woocommerce.php:1000
 msgid "The export lost its product list. Start the export again."
 msgstr "Експорт втратив свій список товарів. Запустіть експорт ще раз."
 
-#: waiter24-ai-assistant-for-woocommerce.php:1019
+#: waiter24-ai-assistant-for-woocommerce.php:1132
 msgid "Scheduled exports are not firing on this site."
 msgstr "Планові експорти на цьому сайті не запускаються."
 
-#: waiter24-ai-assistant-for-woocommerce.php:1020
+#: waiter24-ai-assistant-for-woocommerce.php:1133
 msgid ""
 "WordPress background tasks (WP-Cron) appear to be disabled or blocked by "
 "your host, and the schedule below depends on them. Waiter24 works around it "
@@ -279,13 +279,13 @@ msgstr ""
 "завданням."
 
 #. translators: 1: products exported so far, 2: products in the catalog.
-#: waiter24-ai-assistant-for-woocommerce.php:1249
+#: waiter24-ai-assistant-for-woocommerce.php:1362
 #, php-format
 msgid "%1$d of %2$d products exported."
 msgstr "Експортовано %1$d з %2$d товарів."
 
 #. translators: %d: number of products sent so far.
-#: waiter24-ai-assistant-for-woocommerce.php:1257
+#: waiter24-ai-assistant-for-woocommerce.php:1370
 #, php-format
 msgid "%d product sent so far."
 msgid_plural "%d products sent so far."
@@ -293,17 +293,17 @@ msgstr[0] "Надіслано %d товар."
 msgstr[1] "Надіслано %d товари."
 msgstr[2] "Надіслано %d товарів."
 
-#: waiter24-ai-assistant-for-woocommerce.php:1520
+#: waiter24-ai-assistant-for-woocommerce.php:1633
 msgid "Failed to encode the catalog as JSON."
 msgstr "Не вдалося закодувати каталог у JSON."
 
 #. translators: %s: connection error message.
-#: waiter24-ai-assistant-for-woocommerce.php:1546
+#: waiter24-ai-assistant-for-woocommerce.php:1659
 #, php-format
 msgid "Could not reach Waiter24: %s"
 msgstr "Не вдалося звʼязатися з Waiter24: %s"
 
-#: waiter24-ai-assistant-for-woocommerce.php:1556
+#: waiter24-ai-assistant-for-woocommerce.php:1669
 msgid ""
 "Authentication failed (HTTP 401/403). Check that the Import Token is correct "
 "— it is NOT the Unique (widget) Key."
@@ -312,7 +312,7 @@ msgstr ""
 "правильний — це НЕ Унікальний (віджетний) ключ."
 
 #. translators: 1: HTTP status code, 2: response body excerpt.
-#: waiter24-ai-assistant-for-woocommerce.php:1561
+#: waiter24-ai-assistant-for-woocommerce.php:1674
 #, php-format
 msgid "Import endpoint returned HTTP %1$d: %2$s"
 msgstr "Ендпоінт імпорту повернув HTTP %1$d: %2$s"
