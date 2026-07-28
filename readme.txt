@@ -4,7 +4,7 @@ Tags: ai, chatbot, ai assistant, product recommendations, live chat
 Requires at least: 6.5
 Requires PHP: 7.4
 Tested up to: 7.0
-Stable tag: 1.10.0
+Stable tag: 1.10.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -107,9 +107,9 @@ Every product with status "publish", including variable products with their avai
 
 = I have thousands of products and the export times out =
 
-It cannot any more. Since 1.10.0 "Export Now" only *starts* the export: the work is handed to Action Scheduler (the background queue that ships with WooCommerce) and the catalog goes out in batches of 100 products, each its own short request. The settings page shows the running count and the final result.
+It cannot any more. Since 1.10.0 "Export Now" only *starts* the export: the work is handed to Action Scheduler (the background queue that ships with WooCommerce) and the catalog goes out in batches of 50 products, each its own short request. The settings page shows the running count and the final result.
 
-This does require the site's background tasks to run — the same WP-Cron / loopback mechanism WooCommerce itself uses. If your progress counter never moves, check WooCommerce → Status → Scheduled Actions.
+If your site does not run background tasks at all (WP-Cron disabled, or loopback requests blocked by the host), the scheduled batch would simply stay "pending". Since 1.10.1 that is covered too: when the queue has not moved the export for 15 seconds, the settings page pushes the batches itself. Just leave that page open until the counter stops.
 
 = Does the export delete anything in Waiter24? =
 
@@ -143,6 +143,10 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 4. A product added to the real WooCommerce cart from inside the chat — the cart total in the site header updates without a page reload.
 
 == Changelog ==
+
+= 1.10.1 =
+* Fixed: on sites whose background tasks never fire — WP-Cron disabled, or loopback requests blocked by the host — the export was queued and then sat there as a pending scheduled action, exporting nothing. The settings page now pushes the batches itself whenever the queue has not moved the export for 15 seconds, so the export completes as long as that page stays open. Where the queue does work, it still does the job and the page only watches.
+* Changed: the progress counter updates in place instead of reloading the page, and batches are 50 products (was 100) so one batch fits comfortably inside a slow host's request limit.
 
 = 1.10.0 =
 * Fixed: "Export Now" no longer dies with a "504 Gateway Timeout" on a large catalog. The store's web server used to cut the page off while PHP was still reading products; the export now runs in the background on Action Scheduler (WooCommerce's own queue) and pushes the catalog in batches of 100 products, each its own short request. Neither end ever holds the whole catalog. The settings page shows live progress while it runs.
@@ -190,6 +194,9 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 * Catalog export and chat-widget injection.
 
 == Upgrade Notice ==
+
+= 1.10.1 =
+Fixes exports that stayed stuck at zero products on hosts where WordPress background tasks do not run.
 
 = 1.10.0 =
 Large catalogs no longer time out: the export runs in the background and is pushed in batches. Upgrade if "Export Now" ever ended in a Gateway Timeout.
