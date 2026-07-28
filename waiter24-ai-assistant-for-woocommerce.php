@@ -3,7 +3,7 @@
  * Plugin Name:          Waiter24 AI Assistant for WooCommerce
  * Plugin URI:           https://waiter24.ai/
  * Description:          Syncs your WooCommerce catalog to your Waiter24 account and adds the Waiter24 AI chat assistant to the storefront, so shoppers can ask questions and add products to the real WooCommerce cart from inside the chat.
- * Version:              1.10.0
+ * Version:              1.10.1
  * Requires at least:    6.5
  * Requires PHP:         7.4
  * Requires Plugins:     woocommerce
@@ -38,7 +38,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.10.0' );
+define( 'W24_EXPORT_VERSION', '1.10.1' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
 define( 'W24_CHUNK_HOOK', 'waiter24_export_chunk' ); // One background slice of a running export.
 define( 'W24_OPTION_KEY', 'waiter24_export_settings' );
@@ -47,6 +47,10 @@ define( 'W24_PROGRESS_KEY', 'waiter24_export_progress' );
 // An export whose slices stopped arriving for this long is considered dead, so
 // Export Now works again after a crashed queue runner.
 define( 'W24_EXPORT_STALL_SECONDS', 600 );
+// How long the settings page waits for the background queue before pushing the
+// next slice itself. Long enough that a working queue is never raced, short
+// enough that a store whose background tasks never fire still exports.
+define( 'W24_EXPORT_HANDOFF_SECONDS', 15 );
 define( 'W24_IMPORT_URL', 'https://waiter24.ai/api/integrations/menu' );
 define( 'W24_WIDGET_URL', 'https://waiter24.ai/widget.js' );
 define( 'W24_DEMO_PARAM', 'waiter24_demo' ); // GET param that reveals the widget in demo mode.
@@ -533,20 +537,61 @@ function w24_render_settings_page() {
         </form>
 
         <?php if ( w24_export_is_running() ) : ?>
-            <p class="description">
+            <p class="description" id="w24-export-progress">
                 <span class="spinner is-active" style="float:none;margin:0 4px 0 0"></span>
                 <strong><?php esc_html_e( 'Export in progress…', 'waiter24-ai-assistant-for-woocommerce' ); ?></strong>
-                <?php
-                printf(
-                    /* translators: %d: number of products sent so far. */
-                    esc_html( _n( '%d product sent so far.', '%d products sent so far.', (int) $progress['sent'], 'waiter24-ai-assistant-for-woocommerce' ) ),
-                    (int) $progress['sent']
-                );
-                ?>
-                <?php esc_html_e( 'This page refreshes itself while the export runs.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
+                <span id="w24-export-count">
+                    <?php
+                    printf(
+                        /* translators: %d: number of products sent so far. */
+                        esc_html( _n( '%d product sent so far.', '%d products sent so far.', (int) $progress['sent'], 'waiter24-ai-assistant-for-woocommerce' ) ),
+                        (int) $progress['sent']
+                    );
+                    ?>
+                </span>
+                <br />
+                <?php esc_html_e( 'Keep this page open until the export finishes: if your site does not run background tasks, this page pushes the batches itself.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
             </p>
             <script>
-                setTimeout( function () { window.location.reload(); }, 7000 );
+                ( function () {
+                    var endpoint = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
+                    var nonce    = <?php echo wp_json_encode( wp_create_nonce( 'waiter24_export_step' ) ); ?>;
+                    var counter  = document.getElementById( 'w24-export-count' );
+
+                    // Sequential, never on a timer: one call may spend a while
+                    // pushing a batch, and overlapping calls would race it.
+                    function step() {
+                        var body = new FormData();
+                        body.append( 'action', 'waiter24_export_step' );
+                        body.append( 'nonce', nonce );
+
+                        fetch( endpoint, { method: 'POST', body: body, credentials: 'same-origin' } )
+                            .then( function ( r ) { return r.json(); } )
+                            .then( function ( res ) {
+                                if ( ! res || ! res.success ) {
+                                    window.location.reload();
+                                    return;
+                                }
+
+                                if ( counter && res.data.label ) {
+                                    counter.textContent = res.data.label;
+                                }
+
+                                if ( ! res.data.running ) {
+                                    window.location.reload();
+                                    return;
+                                }
+
+                                // Pushing the batches ourselves: come straight
+                                // back for the next one. Merely watching a
+                                // working queue: check in every few seconds.
+                                setTimeout( step, res.data.driving ? 250 : 3000 );
+                            } )
+                            .catch( function () { setTimeout( step, 5000 ); } );
+                    }
+
+                    step();
+                } )();
             </script>
         <?php endif; ?>
 
@@ -710,6 +755,7 @@ function w24_start_export( $trigger = 'cron' ) {
             'page'    => 1,
             'sent'    => 0,
             'trigger' => 'manual' === $trigger ? 'manual' : 'cron',
+            'driver'  => 'queue',
             'started' => time(),
         )
     );
@@ -747,8 +793,15 @@ function w24_run_export_chunk( $session, $page, $background = true ) {
     $page     = max( 1, (int) $page );
 
     // A leftover action from a superseded (or cancelled) run must not resurrect
-    // that run and interleave its slices with the current one.
+    // that run and interleave its slices with the current one. Neither may two
+    // runners (the queue and the settings page, see w24_ajax_export_step) work
+    // the same export at once: only the slice the progress is waiting for runs,
+    // so a duplicate action exits instead of rewinding the counter.
     if ( 'running' !== $progress['status'] || $progress['session'] !== $session ) {
+        return false;
+    }
+
+    if ( $page !== (int) $progress['page'] ) {
         return false;
     }
 
@@ -816,6 +869,7 @@ function w24_run_export_chunk( $session, $page, $background = true ) {
             'page'    => $page + 1,
             'sent'    => $sent,
             'trigger' => $progress['trigger'],
+            'driver'  => $progress['driver'],
             'started' => $progress['started'],
         )
     );
@@ -832,6 +886,68 @@ function w24_run_export_chunk( $session, $page, $background = true ) {
     }
 
     return true;
+}
+
+/**
+ * Drive a running export from the settings page.
+ *
+ * Action Scheduler needs the site's background tasks to actually fire, and on
+ * plenty of hosts they do not: WP-Cron is disabled, or loopback requests are
+ * blocked, and the slice sits in the queue as "pending" forever. So the settings
+ * page keeps asking — and if the queue has not moved the export for a while, it
+ * runs the next slice itself, inside this request.
+ *
+ * One slice per call, and the page-match guard in w24_run_export_chunk() keeps
+ * this from colliding with a queue runner that wakes up late.
+ */
+add_action( 'wp_ajax_waiter24_export_step', 'w24_ajax_export_step' );
+
+function w24_ajax_export_step() {
+    check_ajax_referer( 'waiter24_export_step', 'nonce' );
+
+    if ( ! current_user_can( 'manage_woocommerce' ) ) {
+        wp_send_json_error( array( 'message' => __( 'You do not have sufficient permissions to access this page.', 'waiter24-ai-assistant-for-woocommerce' ) ), 403 );
+    }
+
+    $progress = w24_export_progress();
+
+    // The export is only nudged along here, never started: an idle, finished or
+    // failed run is simply reported back so the page can show its result.
+    //
+    // The handoff is one-way. Waiting out the window again between every batch
+    // would drag a big catalog out into hours, so once this page has taken the
+    // export over it keeps it — a queue that wakes up late finds every slice
+    // already claimed and exits.
+    $stalled = ( time() - (int) $progress['updated'] ) >= W24_EXPORT_HANDOFF_SECONDS;
+
+    if ( 'running' === $progress['status'] && ( 'page' === $progress['driver'] || $stalled ) ) {
+        $progress['driver'] = 'page';
+        w24_set_progress( $progress );
+
+        w24_run_export_chunk( $progress['session'], (int) $progress['page'], false );
+        $progress = w24_export_progress();
+    }
+
+    $last = get_option( W24_LAST_RUN_KEY, array() );
+
+    $sent = (int) $progress['sent'];
+
+    wp_send_json_success(
+        array(
+            'status'  => $progress['status'],
+            'sent'    => $sent,
+            'running' => ( 'running' === $progress['status'] ),
+            'driving' => ( 'page' === $progress['driver'] ),
+            // Pluralized here rather than in the browser: languages with more
+            // than two plural forms cannot be served by a JS string swap.
+            'label'   => sprintf(
+                /* translators: %d: number of products sent so far. */
+                _n( '%d product sent so far.', '%d products sent so far.', $sent, 'waiter24-ai-assistant-for-woocommerce' ),
+                $sent
+            ),
+            'message' => ( is_array( $last ) && ! empty( $last['message'] ) ) ? (string) $last['message'] : '',
+        )
+    );
 }
 
 /**
@@ -868,7 +984,11 @@ function w24_finalize_export( $session, $sent ) {
  * @return int
  */
 function w24_chunk_size() {
-    $size = (int) apply_filters( 'waiter24_export_batch_size', 100 );
+    // 50 keeps one slice comfortably inside even a slow shared host's request
+    // limit — the settings page runs slices itself when the site's background
+    // queue is dead, and those go through the same gateway that timed out on
+    // the old single-shot export.
+    $size = (int) apply_filters( 'waiter24_export_batch_size', 50 );
 
     return max( 10, min( 500, $size ) );
 }
@@ -890,11 +1010,12 @@ function w24_new_session_id() {
  */
 function w24_export_progress() {
     $defaults = array(
-        'status'  => 'idle', // idle | running | done | error
+        'status'  => 'idle',  // idle | running | done | error
         'session' => '',
         'page'    => 1,
         'sent'    => 0,
         'trigger' => 'cron',
+        'driver'  => 'queue', // queue | page — who is pushing the slices.
         'started' => 0,
         'updated' => 0,
     );

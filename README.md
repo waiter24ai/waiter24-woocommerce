@@ -45,13 +45,21 @@ integrations (see [`examples/menu-import-sample.json`](examples/menu-import-samp
   so activation cannot fire an export before the token has been entered.
 - **Batching** (`w24_start_export` → `w24_run_export_chunk` → `w24_finalize_export`):
   the catalog is never built inside the request that asks for it — that is what
-  produced "504 Gateway Timeout" on big stores. Each slice (100 products,
+  produced "504 Gateway Timeout" on big stores. Each slice (50 products,
   `waiter24_export_batch_size`) is one Action Scheduler action and one short
   POST carrying `import_session` + `chunk`; the closing POST sends
   `final: true` and no items, which is the only call that lets Waiter24 hide
   products the store dropped. Progress lives in `waiter24_export_progress`;
   a run whose slices stop arriving for 10 minutes is considered dead so
   **Export Now** unblocks itself.
+- **Two runners, one export.** Action Scheduler only moves if the site's
+  background tasks fire, and on many hosts they do not (WP-Cron off, loopback
+  blocked) — the action then sits "pending" and nothing is exported. So the
+  settings page polls `wp_ajax_waiter24_export_step` and, when the queue has
+  not advanced the export for `W24_EXPORT_HANDOFF_SECONDS`, runs the next slice
+  inside that AJAX request. They cannot collide: `w24_run_export_chunk()` runs
+  only the slice `waiter24_export_progress` is waiting for, so a late queue
+  runner exits instead of rewinding the counter.
 - **Widget**: enqueues `widget.js` with the public widget key in the footer;
   `script_loader_tag` adds `defer`, `data-key` and (in demo mode)
   `data-demo-param`. In demo mode the enqueue is skipped entirely unless the
@@ -151,6 +159,9 @@ PUBLISHING.md                               submission + release runbook
 The user-facing changelog is maintained in [`readme.txt`](readme.txt) (that is
 what WordPress.org renders). Summary of the current release:
 
+- **1.10.1** — the settings page drives the export when the site's background
+  queue does not (pending action, zero products exported); live counter instead
+  of a page reload; batch size 100 → 50.
 - **1.10.0** — the export runs in the background (Action Scheduler) and pushes
   the catalog in batches of 100 products under one `import_session`, ending with
   a `final` call. Fixes "504 Gateway Timeout" on stores too large to export
