@@ -45,9 +45,16 @@ integrations (see [`examples/menu-import-sample.json`](examples/menu-import-samp
   so activation cannot fire an export before the token has been entered.
 - **Batching** (`w24_start_export` → `w24_run_export_chunk` → `w24_finalize_export`):
   the catalog is never built inside the request that asks for it — that is what
-  produced "504 Gateway Timeout" on big stores. Each slice (50 products,
-  `waiter24_export_batch_size`) is one Action Scheduler action and one short
-  POST carrying `import_session` + `chunk`; the closing POST sends
+  produced "504 Gateway Timeout" on big stores. `w24_start_export()` pins the
+  catalogue to an id list (`waiter24_export_queue`); slices walk it by offset, so
+  a product added or deleted mid-export cannot shift the paging and make a slice
+  skip — and a skipped product would be hidden when the session closes. Each
+  slice builds for `waiter24_export_batch_seconds` (12) up to
+  `waiter24_export_batch_size` (50) products, **whichever comes first**: a fixed
+  product count is a bet on host speed, and on shared hosting that bet loses to
+  `max_execution_time` (a real store built ~2 products/second, so 50 products
+  meant a 28-second request). One slice is one Action Scheduler action and one
+  short POST carrying `import_session` + `chunk`; the closing POST sends
   `final: true` and no items, which is the only call that lets Waiter24 hide
   products the store dropped. Progress lives in `waiter24_export_progress`;
   a run whose slices stop arriving for 10 minutes is considered dead so
@@ -170,6 +177,10 @@ PUBLISHING.md                               submission + release runbook
 The user-facing changelog is maintained in [`readme.txt`](readme.txt) (that is
 what WordPress.org renders). Summary of the current release:
 
+- **1.10.3** — slices are bounded by seconds, not by product count (a slow host
+  was killed by `max_execution_time` half way through); catalogue pinned to an
+  id snapshot; the admin driver retries a died batch instead of stopping
+  silently; progress reads "X of Y".
 - **1.10.2** — missed schedules run from wp-admin on sites with no working
   WP-Cron; an export in progress continues from any admin screen; the settings
   page says when WP-Cron is dead.
