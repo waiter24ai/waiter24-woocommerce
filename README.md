@@ -43,6 +43,15 @@ integrations (see [`examples/menu-import-sample.json`](examples/menu-import-samp
 - **Sync**: scheduled via WP-Cron (daily / weekly / monthly) plus a manual
   **Export Now** button. The schedule is created one hour out, never at `time()`,
   so activation cannot fire an export before the token has been entered.
+- **Batching** (`w24_start_export` → `w24_run_export_chunk` → `w24_finalize_export`):
+  the catalog is never built inside the request that asks for it — that is what
+  produced "504 Gateway Timeout" on big stores. Each slice (100 products,
+  `waiter24_export_batch_size`) is one Action Scheduler action and one short
+  POST carrying `import_session` + `chunk`; the closing POST sends
+  `final: true` and no items, which is the only call that lets Waiter24 hide
+  products the store dropped. Progress lives in `waiter24_export_progress`;
+  a run whose slices stop arriving for 10 minutes is considered dead so
+  **Export Now** unblocks itself.
 - **Widget**: enqueues `widget.js` with the public widget key in the footer;
   `script_loader_tag` adds `defer`, `data-key` and (in demo mode)
   `data-demo-param`. In demo mode the enqueue is skipped entirely unless the
@@ -142,6 +151,10 @@ PUBLISHING.md                               submission + release runbook
 The user-facing changelog is maintained in [`readme.txt`](readme.txt) (that is
 what WordPress.org renders). Summary of the current release:
 
+- **1.10.0** — the export runs in the background (Action Scheduler) and pushes
+  the catalog in batches of 100 products under one `import_session`, ending with
+  a `final` call. Fixes "504 Gateway Timeout" on stores too large to export
+  inside one request; a half-finished run now hides nothing.
 - **1.9.0** — Demo Mode enforced server-side: the widget script is not printed
   at all without `?waiter24_demo=1` (previously it loaded everywhere and hid
   itself, which a page cache or a script optimizer could defeat). The demo

@@ -3,7 +3,7 @@
  * Plugin Name:          Waiter24 AI Assistant for WooCommerce
  * Plugin URI:           https://waiter24.ai/
  * Description:          Syncs your WooCommerce catalog to your Waiter24 account and adds the Waiter24 AI chat assistant to the storefront, so shoppers can ask questions and add products to the real WooCommerce cart from inside the chat.
- * Version:              1.9.0
+ * Version:              1.10.0
  * Requires at least:    6.5
  * Requires PHP:         7.4
  * Requires Plugins:     woocommerce
@@ -38,10 +38,15 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.9.0' );
+define( 'W24_EXPORT_VERSION', '1.10.0' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
+define( 'W24_CHUNK_HOOK', 'waiter24_export_chunk' ); // One background slice of a running export.
 define( 'W24_OPTION_KEY', 'waiter24_export_settings' );
 define( 'W24_LAST_RUN_KEY', 'waiter24_export_last_run' );
+define( 'W24_PROGRESS_KEY', 'waiter24_export_progress' );
+// An export whose slices stopped arriving for this long is considered dead, so
+// Export Now works again after a crashed queue runner.
+define( 'W24_EXPORT_STALL_SECONDS', 600 );
 define( 'W24_IMPORT_URL', 'https://waiter24.ai/api/integrations/menu' );
 define( 'W24_WIDGET_URL', 'https://waiter24.ai/widget.js' );
 define( 'W24_DEMO_PARAM', 'waiter24_demo' ); // GET param that reveals the widget in demo mode.
@@ -125,6 +130,14 @@ function w24_activate() {
 
 function w24_deactivate() {
     wp_clear_scheduled_hook( W24_CRON_HOOK );
+
+    // Drop any slices of an export still queued, so reactivating does not
+    // resume half of yesterday's catalog against a fresh session.
+    if ( function_exists( 'as_unschedule_all_actions' ) ) {
+        as_unschedule_all_actions( W24_CHUNK_HOOK );
+    }
+
+    delete_option( W24_PROGRESS_KEY );
 }
 
 /**
@@ -272,20 +285,45 @@ function w24_render_settings_page() {
         wp_die( esc_html__( 'You do not have sufficient permissions to access this page.', 'waiter24-ai-assistant-for-woocommerce' ) );
     }
 
-    // Handle manual export.
-    $manual_result = '';
-    $manual_error  = '';
+    // Handle manual export. The request only *starts* it — see w24_start_export()
+    // for why the catalog is never built inside this page load. The outcome is
+    // carried through a redirect (post/redirect/get) so that the progress block
+    // below can reload the page without the browser re-posting the button.
     if (
         isset( $_POST['waiter24_manual_export'] )
         && check_admin_referer( 'waiter24_manual_export_action', 'waiter24_manual_export_nonce' )
     ) {
-        $result = w24_run_export();
-        if ( true === $result ) {
-            $manual_result = 'success';
-        } else {
-            $manual_result = 'error';
-            $manual_error  = is_string( $result ) ? $result : '';
+        $result = w24_start_export( 'manual' );
+
+        if ( true !== $result ) {
+            set_transient( 'w24_export_error_' . get_current_user_id(), (string) $result, MINUTE_IN_SECONDS );
         }
+
+        wp_safe_redirect(
+            add_query_arg(
+                array(
+                    'page'       => 'waiter24-export',
+                    'w24_export' => ( true === $result ) ? 'started' : 'error',
+                ),
+                admin_url( 'admin.php' )
+            )
+        );
+        exit;
+    }
+
+    $manual_result = '';
+    $manual_error  = '';
+
+    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only flag set by our own redirect above.
+    $flag = isset( $_GET['w24_export'] ) ? sanitize_key( wp_unslash( $_GET['w24_export'] ) ) : '';
+
+    if ( 'started' === $flag ) {
+        $manual_result = 'success';
+    } elseif ( 'error' === $flag ) {
+        $manual_result = 'error';
+        $stored        = get_transient( 'w24_export_error_' . get_current_user_id() );
+        $manual_error  = is_string( $stored ) ? $stored : '';
+        delete_transient( 'w24_export_error_' . get_current_user_id() );
     }
 
     $settings       = w24_get_settings();
@@ -298,6 +336,7 @@ function w24_render_settings_page() {
     $demo_url       = add_query_arg( W24_DEMO_PARAM, '1', home_url( '/' ) );
     $next_scheduled = wp_next_scheduled( W24_CRON_HOOK );
     $last_run       = get_option( W24_LAST_RUN_KEY, array() );
+    $progress       = w24_export_progress();
     ?>
     <div class="wrap">
         <h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
@@ -315,8 +354,8 @@ function w24_render_settings_page() {
         <?php if ( 'success' === $manual_result ) : ?>
             <div class="notice notice-success is-dismissible">
                 <p>
-                    <strong><?php esc_html_e( 'Export completed successfully!', 'waiter24-ai-assistant-for-woocommerce' ); ?></strong>
-                    <?php esc_html_e( 'The catalog has been sent to Waiter24.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
+                    <strong><?php esc_html_e( 'Export started.', 'waiter24-ai-assistant-for-woocommerce' ); ?></strong>
+                    <?php esc_html_e( 'It runs in the background, a batch at a time, so a large catalog cannot time out. Progress is shown below.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
                 </p>
             </div>
         <?php elseif ( 'error' === $manual_result ) : ?>
@@ -493,6 +532,24 @@ function w24_render_settings_page() {
             </p>
         </form>
 
+        <?php if ( w24_export_is_running() ) : ?>
+            <p class="description">
+                <span class="spinner is-active" style="float:none;margin:0 4px 0 0"></span>
+                <strong><?php esc_html_e( 'Export in progress…', 'waiter24-ai-assistant-for-woocommerce' ); ?></strong>
+                <?php
+                printf(
+                    /* translators: %d: number of products sent so far. */
+                    esc_html( _n( '%d product sent so far.', '%d products sent so far.', (int) $progress['sent'], 'waiter24-ai-assistant-for-woocommerce' ) ),
+                    (int) $progress['sent']
+                );
+                ?>
+                <?php esc_html_e( 'This page refreshes itself while the export runs.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
+            </p>
+            <script>
+                setTimeout( function () { window.location.reload(); }, 7000 );
+            </script>
+        <?php endif; ?>
+
         <?php if ( $next_scheduled ) : ?>
             <p class="description">
                 <?php esc_html_e( 'Next scheduled export:', 'waiter24-ai-assistant-for-woocommerce' ); ?>
@@ -610,28 +667,277 @@ function w24_widget_script_tag( $tag, $handle, $src ) {
  *  EXPORT LOGIC
  * =============================================
  */
-add_action( W24_CRON_HOOK, 'w24_run_export' );
+add_action( W24_CRON_HOOK, 'w24_start_export' );
+add_action( W24_CHUNK_HOOK, 'w24_run_export_chunk', 10, 2 );
 
 /**
- * Build the menu payload and push it to Waiter24.
+ * Start an export.
  *
- * @return true|string true on success, or a human-readable error message.
+ * The catalog is never built inside the request that asks for it: a large store
+ * needs minutes to read every product, and the web server in front of PHP gives
+ * up long before that (the classic "504 Gateway Timeout" on Export Now). Instead
+ * the work is handed to Action Scheduler — WooCommerce's own background queue —
+ * which walks the catalog one slice at a time. Each slice is its own short
+ * request to Waiter24, so neither end ever has to hold the whole catalog.
+ *
+ * @param string $trigger What asked for this export: 'manual' or 'cron'.
+ * @return true|string true when the export was started, or an error message.
  */
-function w24_run_export() {
+function w24_start_export( $trigger = 'cron' ) {
     if ( ! class_exists( 'WooCommerce' ) ) {
         return w24_record_run( __( 'WooCommerce is not active.', 'waiter24-ai-assistant-for-woocommerce' ), 0 );
     }
 
+    $settings = w24_get_settings();
+
+    if ( '' === trim( (string) $settings['import_token'] ) ) {
+        return w24_record_run(
+            __( 'Import Token is empty. Paste it from the Menu auto-import tab in your Waiter24 dashboard.', 'waiter24-ai-assistant-for-woocommerce' ),
+            0
+        );
+    }
+
+    if ( w24_export_is_running() ) {
+        return __( 'An export is already running.', 'waiter24-ai-assistant-for-woocommerce' );
+    }
+
+    $session = w24_new_session_id();
+
+    w24_set_progress(
+        array(
+            'status'  => 'running',
+            'session' => $session,
+            'page'    => 1,
+            'sent'    => 0,
+            'trigger' => 'manual' === $trigger ? 'manual' : 'cron',
+            'started' => time(),
+        )
+    );
+
+    if ( function_exists( 'as_enqueue_async_action' ) ) {
+        as_enqueue_async_action( W24_CHUNK_HOOK, array( $session, 1 ), 'waiter24' );
+
+        return true;
+    }
+
+    // Safety net only: Action Scheduler ships with WooCommerce, which this
+    // plugin requires. Without it there is nowhere to defer to, so the slices
+    // run inline and a big catalog can still outlive the request.
+    $page = 1;
+    while ( w24_run_export_chunk( $session, $page, false ) ) {
+        ++$page;
+    }
+
+    $last = get_option( W24_LAST_RUN_KEY, array() );
+
+    return empty( $last['ok'] ) && ! empty( $last['message'] ) ? $last['message'] : true;
+}
+
+/**
+ * Export one slice of the catalog: read a page of products, push it, then queue
+ * the next page — or close the session when the catalog runs out.
+ *
+ * @param string $session    Import-session id shared by every slice of this run.
+ * @param int    $page       1-based page of the product query.
+ * @param bool   $background Whether to queue the next slice (false = inline run).
+ * @return bool Whether another slice is pending.
+ */
+function w24_run_export_chunk( $session, $page, $background = true ) {
+    $progress = w24_export_progress();
+    $page     = max( 1, (int) $page );
+
+    // A leftover action from a superseded (or cancelled) run must not resurrect
+    // that run and interleave its slices with the current one.
+    if ( 'running' !== $progress['status'] || $progress['session'] !== $session ) {
+        return false;
+    }
+
     $settings     = w24_get_settings();
     $simple_stock = ! empty( $settings['simple_stock_mode'] );
+    $per_page     = w24_chunk_size();
+    $currency     = get_woocommerce_currency();
 
-    // ------------------------------------------
-    //  site_config
-    // ------------------------------------------
-    // Note: cart_integration_enabled is deliberately NOT sent — that toggle is
-    // owned by the Waiter24 dashboard, and pushing a value here would reset the
-    // store owner's choice on every scheduled export.
-    $site_config = array(
+    wp_raise_memory_limit( 'admin' );
+
+    // Ordered by ID, which is unique and stable: paging over a non-unique key
+    // like menu_order can shuffle ties between queries and skip a product, and
+    // a product missed by every slice would be hidden when the session closes.
+    // Display order is carried by each item's own sort_order field anyway.
+    $products = wc_get_products(
+        array(
+            'status'  => 'publish',
+            'limit'   => $per_page,
+            'page'    => $page,
+            'orderby' => 'ID',
+            'order'   => 'ASC',
+        )
+    );
+
+    if ( ! is_array( $products ) ) {
+        $products = array();
+    }
+
+    $items = array();
+
+    foreach ( $products as $product ) {
+        $items[] = w24_build_item( $product, $currency, $simple_stock );
+    }
+
+    $fetched = count( $products );
+    unset( $products );
+
+    $payload = array(
+        'items'          => $items,
+        'import_session' => $session,
+        'chunk'          => $page,
+    );
+
+    // The store's selectors and endpoints do not change between slices, so they
+    // ride the first one.
+    if ( 1 === $page ) {
+        $payload['site_config'] = w24_site_config();
+    }
+
+    $result = w24_save_and_notify( $payload );
+
+    if ( true !== $result ) {
+        w24_set_progress( array( 'status' => 'error' ) + $progress );
+        w24_record_run( $result, (int) $progress['sent'] );
+
+        return false;
+    }
+
+    $sent = (int) $progress['sent'] + $fetched;
+
+    w24_set_progress(
+        array(
+            'status'  => 'running',
+            'session' => $session,
+            'page'    => $page + 1,
+            'sent'    => $sent,
+            'trigger' => $progress['trigger'],
+            'started' => $progress['started'],
+        )
+    );
+
+    // A short page means the catalog is exhausted.
+    if ( $fetched < $per_page ) {
+        w24_finalize_export( $session, $sent );
+
+        return false;
+    }
+
+    if ( $background ) {
+        as_enqueue_async_action( W24_CHUNK_HOOK, array( $session, $page + 1 ), 'waiter24' );
+    }
+
+    return true;
+}
+
+/**
+ * Close the session. Waiter24 hides whatever this run never sent — the dishes
+ * the store no longer sells — and only this call may do that.
+ *
+ * @param string $session Import-session id.
+ * @param int    $sent    Products pushed across every slice.
+ * @return true|string
+ */
+function w24_finalize_export( $session, $sent ) {
+    $result = w24_save_and_notify(
+        array(
+            'items'          => array(),
+            'import_session' => $session,
+            'final'          => true,
+        )
+    );
+
+    $progress            = w24_export_progress();
+    $progress['status']  = ( true === $result ) ? 'done' : 'error';
+    $progress['sent']    = (int) $sent;
+    $progress['session'] = $session;
+
+    w24_set_progress( $progress );
+
+    return w24_record_run( $result, (int) $sent );
+}
+
+/**
+ * How many products one slice carries. Small enough that building and pushing it
+ * fits comfortably inside one PHP request on modest hosting.
+ *
+ * @return int
+ */
+function w24_chunk_size() {
+    $size = (int) apply_filters( 'waiter24_export_batch_size', 100 );
+
+    return max( 10, min( 500, $size ) );
+}
+
+/**
+ * Opaque id tying every slice of one run together. Waiter24 stamps it on the
+ * dishes it receives and uses it to work out what is missing at the end.
+ *
+ * @return string
+ */
+function w24_new_session_id() {
+    return 'w24' . str_replace( '-', '', wp_generate_uuid4() );
+}
+
+/**
+ * Current export progress, always shaped the same so callers can read it blind.
+ *
+ * @return array{status:string, session:string, page:int, sent:int, trigger:string, started:int, updated:int}
+ */
+function w24_export_progress() {
+    $defaults = array(
+        'status'  => 'idle', // idle | running | done | error
+        'session' => '',
+        'page'    => 1,
+        'sent'    => 0,
+        'trigger' => 'cron',
+        'started' => 0,
+        'updated' => 0,
+    );
+
+    $saved = get_option( W24_PROGRESS_KEY, array() );
+
+    return is_array( $saved ) ? array_merge( $defaults, $saved ) : $defaults;
+}
+
+/**
+ * @param array $progress Progress fields to store.
+ */
+function w24_set_progress( $progress ) {
+    $progress['updated'] = time();
+
+    update_option( W24_PROGRESS_KEY, $progress, false );
+}
+
+/**
+ * Is an export still working? A run whose slices stopped arriving (a fatal error
+ * in the queue runner, a disabled cron) is treated as finished, so the store
+ * owner is never locked out of pressing Export Now again.
+ *
+ * @return bool
+ */
+function w24_export_is_running() {
+    $progress = w24_export_progress();
+
+    return 'running' === $progress['status']
+        && ( time() - (int) $progress['updated'] ) < W24_EXPORT_STALL_SECONDS;
+}
+
+/**
+ * The store's cart selectors and endpoints, sent with the first slice.
+ *
+ * Note: cart_integration_enabled is deliberately NOT sent — that toggle is
+ * owned by the Waiter24 dashboard, and pushing a value here would reset the
+ * store owner's choice on every scheduled export.
+ *
+ * @return array
+ */
+function w24_site_config() {
+    return array(
         'platform_preset'               => 'woocommerce',
         'cart_url'                      => wc_get_cart_url(),
         'add_button_selector'           => '.single_add_to_cart_button',
@@ -649,51 +955,6 @@ function w24_run_export() {
         // cart-aware suggestions. Toggle lives in the dashboard (off by default).
         'cart_read_url'                 => rest_url( 'wc/store/v1/cart' ),
     );
-
-    // ------------------------------------------
-    //  items — paged, so a large catalog never
-    //  holds every WC_Product object in memory.
-    // ------------------------------------------
-    wp_raise_memory_limit( 'admin' );
-
-    $items    = array();
-    $currency = get_woocommerce_currency();
-    $per_page = (int) apply_filters( 'waiter24_export_batch_size', 200 );
-    $per_page = max( 1, min( 500, $per_page ) );
-    $page     = 1;
-
-    do {
-        $products = wc_get_products(
-            array(
-                'status'  => 'publish',
-                'limit'   => $per_page,
-                'page'    => $page,
-                'orderby' => 'menu_order',
-                'order'   => 'ASC',
-            )
-        );
-
-        if ( ! is_array( $products ) ) {
-            break;
-        }
-
-        foreach ( $products as $product ) {
-            $items[] = w24_build_item( $product, $currency, $simple_stock );
-        }
-
-        $fetched = count( $products );
-        unset( $products );
-        ++$page;
-    } while ( $fetched === $per_page );
-
-    $result = w24_save_and_notify(
-        array(
-            'site_config' => $site_config,
-            'items'       => $items,
-        )
-    );
-
-    return w24_record_run( $result, count( $items ) );
 }
 
 /**
