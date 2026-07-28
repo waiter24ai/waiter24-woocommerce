@@ -3,7 +3,7 @@
  * Plugin Name:          Waiter24 AI Assistant for WooCommerce
  * Plugin URI:           https://waiter24.ai/
  * Description:          Syncs your WooCommerce catalog to your Waiter24 account and adds the Waiter24 AI chat assistant to the storefront, so shoppers can ask questions and add products to the real WooCommerce cart from inside the chat.
- * Version:              1.8.0
+ * Version:              1.9.0
  * Requires at least:    6.5
  * Requires PHP:         7.4
  * Requires Plugins:     woocommerce
@@ -38,7 +38,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.8.0' );
+define( 'W24_EXPORT_VERSION', '1.9.0' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
 define( 'W24_OPTION_KEY', 'waiter24_export_settings' );
 define( 'W24_LAST_RUN_KEY', 'waiter24_export_last_run' );
@@ -436,7 +436,7 @@ function w24_render_settings_page() {
                             <?php
                             printf(
                                 /* translators: %s: the demo GET parameter name. */
-                                esc_html__( 'When enabled, the widget stays hidden for regular visitors and appears only on URLs carrying the "%s" parameter. The parameter is then remembered for the browsing session and re-applied to links the assistant opens, so the chat stays visible while you click around.', 'waiter24-ai-assistant-for-woocommerce' ),
+                                esc_html__( 'When enabled, the widget script is not added to the page at all unless the URL carries the "%s" parameter, so regular visitors never load it. The "Enable Chat Widget" switch above still has to be on. Links the assistant opens keep the parameter, so the chat stays visible while you browse the demo.', 'waiter24-ai-assistant-for-woocommerce' ),
                                 esc_html( W24_DEMO_PARAM )
                             );
                             ?>
@@ -533,11 +533,42 @@ function w24_render_settings_page() {
  */
 add_action( 'wp_enqueue_scripts', 'w24_enqueue_widget_script' );
 
+/**
+ * Is the current request carrying the demo parameter?
+ *
+ * Any value counts (`?waiter24_demo=1` is just the link the settings page
+ * hands out) — the parameter is a visibility switch, not input.
+ *
+ * @return bool
+ */
+function w24_demo_param_present() {
+    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only visibility switch; nothing is written.
+    return isset( $_GET[ W24_DEMO_PARAM ] );
+}
+
 function w24_enqueue_widget_script() {
     $settings = w24_get_settings();
 
     if ( empty( $settings['enable_widget'] ) || '' === trim( (string) $settings['unique_key'] ) ) {
         return;
+    }
+
+    // Demo mode is enforced here, on the server: the script is simply not
+    // printed unless the visitor arrived on a demo link. Regular shoppers never
+    // receive the widget at all, so the gate cannot be defeated by a page cache
+    // that stored the markup before the toggle was flipped, nor by an optimizer
+    // that strips the tag's data attributes.
+    if ( ! empty( $settings['demo_mode'] ) ) {
+        if ( ! w24_demo_param_present() ) {
+            return;
+        }
+
+        // Keep page caches from storing (and later serving to everyone) the one
+        // response that does carry the widget. Honoured by W3TC, WP Super Cache,
+        // LiteSpeed Cache, WP Rocket and friends.
+        if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+            define( 'DONOTCACHEPAGE', true );
+        }
     }
 
     // A null version keeps the query string off the service URL, so the CDN
@@ -563,6 +594,10 @@ function w24_widget_script_tag( $tag, $handle, $src ) {
     $settings = w24_get_settings();
     $attrs    = sprintf( ' data-key="%s"', esc_attr( $settings['unique_key'] ) );
 
+    // In demo mode the script only ever reaches a page that already carries the
+    // parameter (see w24_enqueue_widget_script). The attribute is still sent so
+    // the widget re-applies the parameter to the links it opens itself — product
+    // pages, cart, checkout — keeping the demo alive across in-chat navigation.
     if ( ! empty( $settings['demo_mode'] ) ) {
         $attrs .= sprintf( ' data-demo-param="%s"', esc_attr( W24_DEMO_PARAM ) );
     }

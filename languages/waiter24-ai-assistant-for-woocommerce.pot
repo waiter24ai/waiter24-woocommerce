@@ -2,7 +2,7 @@
 # This file is distributed under the same license as the Waiter24 AI Assistant for WooCommerce plugin.
 msgid ""
 msgstr ""
-"Project-Id-Version: Waiter24 AI Assistant for WooCommerce 1.8.0\n"
+"Project-Id-Version: Waiter24 AI Assistant for WooCommerce 1.9.0\n"
 "Report-Msgid-Bugs-To: https://waiter24.ai/\n"
 "Last-Translator: Waiter24 <support@waiter24.ai>\n"
 "Language-Team: Waiter24 <support@waiter24.ai>\n"
@@ -119,7 +119,7 @@ msgstr ""
 #. translators: %s: the demo GET parameter name.
 #: waiter24-ai-assistant-for-woocommerce.php:436
 #, php-format
-msgid "When enabled, the widget stays hidden for regular visitors and appears only on URLs carrying the \"%s\" parameter. The parameter is then remembered for the browsing session and re-applied to links the assistant opens, so the chat stays visible while you click around."
+msgid "When enabled, the widget script is not added to the page at all unless the URL carries the \"%s\" parameter, so regular visitors never load it. The \"Enable Chat Widget\" switch above still has to be on. Links the assistant opens keep the parameter, so the chat stays visible while you browse the demo."
 msgstr ""
 
 #: waiter24-ai-assistant-for-woocommerce.php:442

@@ -45,7 +45,9 @@ integrations (see [`examples/menu-import-sample.json`](examples/menu-import-samp
   so activation cannot fire an export before the token has been entered.
 - **Widget**: enqueues `widget.js` with the public widget key in the footer;
   `script_loader_tag` adds `defer`, `data-key` and (in demo mode)
-  `data-demo-param`.
+  `data-demo-param`. In demo mode the enqueue is skipped entirely unless the
+  request carries `?waiter24_demo=1`, and that response defines
+  `DONOTCACHEPAGE` so a page cache cannot store it.
 - **Site cart**: the export announces `ajax_add_url` (WC AJAX `add_to_cart`) and
   `cart_read_url` (Store API `wc/store/v1/cart`) in `site_config`, so the chat
   widget adds to — and reads — the real WooCommerce cart with no page reload.
@@ -94,7 +96,7 @@ in one request, and `get_price() + addons` compounds the surcharge on each pass.
 | **Import Token** | Secret token (Waiter24 dashboard → Widget Settings → Menu auto-import). Authenticates the menu push. |
 | **Export Period** | WP-Cron frequency. |
 | **Enable Chat Widget** | Inject the widget on the storefront. |
-| **Demo Mode** | Hide the widget from regular visitors; it loads only on URLs carrying `?waiter24_demo=1`. The settings page shows a ready demo link. The parameter is remembered for the browsing session and re-applied to in-chat links. |
+| **Demo Mode** | Narrows **Enable Chat Widget** to demo links: the script is printed only on requests carrying `?waiter24_demo=1`, so regular visitors get a page without it. The settings page shows a ready demo link. Links the assistant opens keep the parameter; a page opened without it has no chat. |
 | **Simple Stock Mode** | Always export products as in-stock. |
 
 ## Requirements
@@ -140,6 +142,10 @@ PUBLISHING.md                               submission + release runbook
 The user-facing changelog is maintained in [`readme.txt`](readme.txt) (that is
 what WordPress.org renders). Summary of the current release:
 
+- **1.9.0** — Demo Mode enforced server-side: the widget script is not printed
+  at all without `?waiter24_demo=1` (previously it loaded everywhere and hid
+  itself, which a page cache or a script optimizer could defeat). The demo
+  response is marked non-cacheable; the session-wide memory of the demo is gone.
 - **1.8.0** — first WordPress.org release. Relicensed **GPLv2 or later**.
   Security: client-supplied add-on prices are clamped so they can never discount
   a cart line, with qty/name/count bounds. Fixed the add-on surcharge being
