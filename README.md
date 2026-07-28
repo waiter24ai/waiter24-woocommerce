@@ -54,12 +54,23 @@ integrations (see [`examples/menu-import-sample.json`](examples/menu-import-samp
   **Export Now** unblocks itself.
 - **Two runners, one export.** Action Scheduler only moves if the site's
   background tasks fire, and on many hosts they do not (WP-Cron off, loopback
-  blocked) — the action then sits "pending" and nothing is exported. So the
-  settings page polls `wp_ajax_waiter24_export_step` and, when the queue has
-  not advanced the export for `W24_EXPORT_HANDOFF_SECONDS`, runs the next slice
-  inside that AJAX request. They cannot collide: `w24_run_export_chunk()` runs
-  only the slice `waiter24_export_progress` is waiting for, so a late queue
-  runner exits instead of rewinding the counter.
+  blocked) — the action then sits "pending" and nothing is exported. So every
+  admin page polls `wp_ajax_waiter24_export_step` (`w24_print_export_driver()`
+  on `admin_footer`) and, when the queue has not advanced the export for
+  `W24_EXPORT_HANDOFF_SECONDS`, runs the next slice inside that AJAX request —
+  the handoff is one-way (`progress['driver']`), or every slice would wait out
+  the window again. They cannot collide: `w24_run_export_chunk()` runs only the
+  slice `waiter24_export_progress` is waiting for, so a late queue runner exits
+  instead of rewinding the counter.
+- **Schedule without cron.** The recurring export is a WP-Cron event, so the
+  same dead-cron site would never sync unattended. `w24_maybe_run_missed_schedule()`
+  (`admin_init`) treats an event overdue by more than an hour as "WP-Cron is
+  dead" and starts the export right there — starting is two option writes, the
+  catalogue work happens in the AJAX driver above, so no admin page load is
+  slowed. The schedule is pushed forward *before* the attempt, so a failing
+  start cannot retry on every page load. `w24_cron_notice()` states the
+  situation on the settings screen and points at the real fix (a system cron
+  calling `wp-cron.php`).
 - **Widget**: enqueues `widget.js` with the public widget key in the footer;
   `script_loader_tag` adds `defer`, `data-key` and (in demo mode)
   `data-demo-param`. In demo mode the enqueue is skipped entirely unless the
@@ -159,6 +170,9 @@ PUBLISHING.md                               submission + release runbook
 The user-facing changelog is maintained in [`readme.txt`](readme.txt) (that is
 what WordPress.org renders). Summary of the current release:
 
+- **1.10.2** — missed schedules run from wp-admin on sites with no working
+  WP-Cron; an export in progress continues from any admin screen; the settings
+  page says when WP-Cron is dead.
 - **1.10.1** — the settings page drives the export when the site's background
   queue does not (pending action, zero products exported); live counter instead
   of a page reload; batch size 100 → 50.

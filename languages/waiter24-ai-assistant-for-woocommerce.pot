@@ -2,7 +2,7 @@
 # This file is distributed under the same license as the Waiter24 AI Assistant for WooCommerce plugin.
 msgid ""
 msgstr ""
-"Project-Id-Version: Waiter24 AI Assistant for WooCommerce 1.10.1\n"
+"Project-Id-Version: Waiter24 AI Assistant for WooCommerce 1.10.2\n"
 "Report-Msgid-Bugs-To: https://waiter24.ai/\n"
 "Last-Translator: Waiter24 <support@waiter24.ai>\n"
 "Language-Team: Waiter24 <support@waiter24.ai>\n"
@@ -20,112 +20,112 @@ msgstr ""
 msgid "Once Monthly"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:215
-#: waiter24-ai-assistant-for-woocommerce.php:216
+#: waiter24-ai-assistant-for-woocommerce.php:286
+#: waiter24-ai-assistant-for-woocommerce.php:287
 msgid "Waiter24 AI Assistant"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:233
+#: waiter24-ai-assistant-for-woocommerce.php:324
 msgid "Settings"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:289
-#: waiter24-ai-assistant-for-woocommerce.php:903
+#: waiter24-ai-assistant-for-woocommerce.php:380
+#: waiter24-ai-assistant-for-woocommerce.php:1041
 msgid "You do not have sufficient permissions to access this page."
 msgstr ""
 
 #. translators: %s: link to the Waiter24 website.
-#: waiter24-ai-assistant-for-woocommerce.php:352
+#: waiter24-ai-assistant-for-woocommerce.php:443
 #, php-format
 msgid ""
 "This plugin connects your store to the Waiter24 service. A Waiter24 account "
 "is required to obtain the two keys below — see %s."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:361
+#: waiter24-ai-assistant-for-woocommerce.php:452
 msgid "Export started."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:362
+#: waiter24-ai-assistant-for-woocommerce.php:453
 msgid ""
 "It runs in the background, a batch at a time, so a large catalog cannot time "
 "out. Progress is shown below."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:368
+#: waiter24-ai-assistant-for-woocommerce.php:459
 msgid "Export failed."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:373
+#: waiter24-ai-assistant-for-woocommerce.php:464
 msgid "Make sure WooCommerce is active and products exist."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:388
+#: waiter24-ai-assistant-for-woocommerce.php:479
 msgid "Unique Key"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:397
+#: waiter24-ai-assistant-for-woocommerce.php:488
 msgid "Enter unique key"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:400
+#: waiter24-ai-assistant-for-woocommerce.php:491
 msgid "Public widget key — used to load the chat widget on your storefront."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:408
+#: waiter24-ai-assistant-for-woocommerce.php:499
 msgid "Import Token"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:418
+#: waiter24-ai-assistant-for-woocommerce.php:509
 msgid "Enter import token"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:421
+#: waiter24-ai-assistant-for-woocommerce.php:512
 msgid ""
 "The 48-character Import Token from your Waiter24 dashboard (Widget → Menu "
 "auto-import tab). This is NOT the Unique (widget) Key above — using the "
 "wrong value returns a 401 error."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:429
+#: waiter24-ai-assistant-for-woocommerce.php:520
 msgid "Export Period"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:433
+#: waiter24-ai-assistant-for-woocommerce.php:524
 msgid "Daily"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:434
+#: waiter24-ai-assistant-for-woocommerce.php:525
 msgid "Weekly"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:435
+#: waiter24-ai-assistant-for-woocommerce.php:526
 msgid "Monthly"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:443
+#: waiter24-ai-assistant-for-woocommerce.php:534
 msgid "Enable Chat Widget"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:454
+#: waiter24-ai-assistant-for-woocommerce.php:545
 msgid "Insert chat widget script on all frontend pages"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:457
+#: waiter24-ai-assistant-for-woocommerce.php:548
 msgid ""
 "When enabled, the Waiter24 chat widget script is loaded in the site footer."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:465
+#: waiter24-ai-assistant-for-woocommerce.php:556
 msgid "Demo Mode"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:476
+#: waiter24-ai-assistant-for-woocommerce.php:567
 msgid "Show the chat widget only to visitors who arrive via the demo link"
 msgstr ""
 
 #. translators: %s: the demo GET parameter name.
-#: waiter24-ai-assistant-for-woocommerce.php:482
+#: waiter24-ai-assistant-for-woocommerce.php:573
 #, php-format
 msgid ""
 "When enabled, the widget script is not added to the page at all unless the "
@@ -135,118 +135,131 @@ msgid ""
 "demo."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:488
+#: waiter24-ai-assistant-for-woocommerce.php:579
 msgid "Open demo:"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:499
+#: waiter24-ai-assistant-for-woocommerce.php:590
 msgid "Simple Stock Mode"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:510
+#: waiter24-ai-assistant-for-woocommerce.php:601
 msgid "Always mark all products as in-stock (ignore real stock data)"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:513
+#: waiter24-ai-assistant-for-woocommerce.php:604
 msgid ""
 "When enabled: every product is exported as available, ignoring real stock. "
 "When disabled: real WooCommerce stock availability is used."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:519
+#: waiter24-ai-assistant-for-woocommerce.php:610
 msgid "Save Settings"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:525
+#: waiter24-ai-assistant-for-woocommerce.php:616
 msgid "Manual Export"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:527
+#: waiter24-ai-assistant-for-woocommerce.php:618
 msgid "Note:"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:528
+#: waiter24-ai-assistant-for-woocommerce.php:619
 msgid ""
 "The export replaces your primary Waiter24 menu (the one marked with a star). "
 "Items missing from this store are hidden, not deleted."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:534
+#: waiter24-ai-assistant-for-woocommerce.php:625
 msgid "Export Now"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:542
+#: waiter24-ai-assistant-for-woocommerce.php:633
 msgid "Export in progress…"
 msgstr ""
 
 #. translators: %d: number of products sent so far.
-#: waiter24-ai-assistant-for-woocommerce.php:547
-#: waiter24-ai-assistant-for-woocommerce.php:928
+#: waiter24-ai-assistant-for-woocommerce.php:638
+#: waiter24-ai-assistant-for-woocommerce.php:1077
 #, php-format
 msgid "%d product sent so far."
 msgid_plural "%d products sent so far."
 msgstr[0] ""
 msgstr[1] ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:553
+#: waiter24-ai-assistant-for-woocommerce.php:644
 msgid ""
-"Keep this page open until the export finishes: if your site does not run "
-"background tasks, this page pushes the batches itself."
+"Stay in the WordPress admin until the export finishes: if your site does not "
+"run background tasks, the admin pushes the batches itself."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:596
+#: waiter24-ai-assistant-for-woocommerce.php:650
 msgid "Next scheduled export:"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:603
+#: waiter24-ai-assistant-for-woocommerce.php:657
 msgid "Last export:"
 msgstr ""
 
 #. translators: %d: number of products sent.
-#: waiter24-ai-assistant-for-woocommerce.php:610
+#: waiter24-ai-assistant-for-woocommerce.php:664
 #, php-format
 msgid "sent %d product"
 msgid_plural "sent %d products"
 msgstr[0] ""
 msgstr[1] ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:615
+#: waiter24-ai-assistant-for-woocommerce.php:669
 msgid "failed:"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:729
+#: waiter24-ai-assistant-for-woocommerce.php:783
 msgid "WooCommerce is not active."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:736
-#: waiter24-ai-assistant-for-woocommerce.php:1275
+#: waiter24-ai-assistant-for-woocommerce.php:790
+#: waiter24-ai-assistant-for-woocommerce.php:1425
 msgid ""
 "Import Token is empty. Paste it from the Menu auto-import tab in your "
 "Waiter24 dashboard."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:742
+#: waiter24-ai-assistant-for-woocommerce.php:796
 msgid "An export is already running."
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:1268
+#: waiter24-ai-assistant-for-woocommerce.php:975
+msgid "Scheduled exports are not firing on this site."
+msgstr ""
+
+#: waiter24-ai-assistant-for-woocommerce.php:976
+msgid ""
+"WordPress background tasks (WP-Cron) appear to be disabled or blocked by "
+"your host, and the schedule below depends on them. Waiter24 works around it "
+"by exporting while you are in the WordPress admin, so the catalog still "
+"syncs about as often as you sign in. For unattended sync, ask your host to "
+"run wp-cron.php with a real cron job."
+msgstr ""
+
+#: waiter24-ai-assistant-for-woocommerce.php:1418
 msgid "Failed to encode the catalog as JSON."
 msgstr ""
 
 #. translators: %s: connection error message.
-#: waiter24-ai-assistant-for-woocommerce.php:1294
+#: waiter24-ai-assistant-for-woocommerce.php:1444
 #, php-format
 msgid "Could not reach Waiter24: %s"
 msgstr ""
 
-#: waiter24-ai-assistant-for-woocommerce.php:1304
+#: waiter24-ai-assistant-for-woocommerce.php:1454
 msgid ""
 "Authentication failed (HTTP 401/403). Check that the Import Token is correct "
 "— it is NOT the Unique (widget) Key."
 msgstr ""
 
 #. translators: 1: HTTP status code, 2: response body excerpt.
-#: waiter24-ai-assistant-for-woocommerce.php:1309
+#: waiter24-ai-assistant-for-woocommerce.php:1459
 #, php-format
 msgid "Import endpoint returned HTTP %1$d: %2$s"
 msgstr ""

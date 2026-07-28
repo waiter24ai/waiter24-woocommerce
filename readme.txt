@@ -4,7 +4,7 @@ Tags: ai, chatbot, ai assistant, product recommendations, live chat
 Requires at least: 6.5
 Requires PHP: 7.4
 Tested up to: 7.0
-Stable tag: 1.10.1
+Stable tag: 1.10.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -109,7 +109,13 @@ Every product with status "publish", including variable products with their avai
 
 It cannot any more. Since 1.10.0 "Export Now" only *starts* the export: the work is handed to Action Scheduler (the background queue that ships with WooCommerce) and the catalog goes out in batches of 50 products, each its own short request. The settings page shows the running count and the final result.
 
-If your site does not run background tasks at all (WP-Cron disabled, or loopback requests blocked by the host), the scheduled batch would simply stay "pending". Since 1.10.1 that is covered too: when the queue has not moved the export for 15 seconds, the settings page pushes the batches itself. Just leave that page open until the counter stops.
+If your site does not run background tasks at all (WP-Cron disabled, or loopback requests blocked by the host), the scheduled batch would simply stay "pending". That is covered too: when the queue has not moved the export for 15 seconds, the WordPress admin pushes the batches itself. Just stay in the admin until the counter stops — any admin page continues it, not only the plugin's own.
+
+= What happens to the scheduled sync if my host has no cron? =
+
+The daily/weekly/monthly schedule is a WP-Cron event, so on a site where WP-Cron is disabled or blocked it would never fire. Since 1.10.2 the plugin notices an overdue schedule when you open the WordPress admin and runs the missed export from there, in background batches. In practice the catalog then syncs about as often as you sign in, and the settings page tells you this is happening.
+
+For a sync that does not depend on anyone signing in, ask your host to call `wp-cron.php` from a real cron job (most panels offer this) — commonly every 5 minutes. The plugin then uses the schedule normally.
 
 = Does the export delete anything in Waiter24? =
 
@@ -143,6 +149,11 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 4. A product added to the real WooCommerce cart from inside the chat — the cart total in the site header updates without a page reload.
 
 == Changelog ==
+
+= 1.10.2 =
+* Fixed: the *scheduled* export was still dead on sites without working background tasks — it is a WP-Cron event, and WP-Cron was exactly what those sites do not run. An overdue schedule is now picked up on any WordPress admin page: the export starts there and the batches go out over background AJAX calls, so the catalog syncs roughly as often as the store owner signs in. No admin page is slowed down by it — the batches are not built during the page load.
+* Changed: an export in progress is now carried on from any admin screen, not only the plugin's settings page. Navigate away and it keeps going.
+* Added: the settings page says plainly when WP-Cron is disabled or blocked, and what to ask the host for if unattended sync is wanted.
 
 = 1.10.1 =
 * Fixed: on sites whose background tasks never fire — WP-Cron disabled, or loopback requests blocked by the host — the export was queued and then sat there as a pending scheduled action, exporting nothing. The settings page now pushes the batches itself whenever the queue has not moved the export for 15 seconds, so the export completes as long as that page stays open. Where the queue does work, it still does the job and the page only watches.
@@ -194,6 +205,9 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 * Catalog export and chat-widget injection.
 
 == Upgrade Notice ==
+
+= 1.10.2 =
+Scheduled exports now also work on hosts with no working WP-Cron: they run from the WordPress admin instead of never running at all.
 
 = 1.10.1 =
 Fixes exports that stayed stuck at zero products on hosts where WordPress background tasks do not run.

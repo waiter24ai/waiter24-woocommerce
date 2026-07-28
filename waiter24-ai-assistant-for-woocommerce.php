@@ -3,7 +3,7 @@
  * Plugin Name:          Waiter24 AI Assistant for WooCommerce
  * Plugin URI:           https://waiter24.ai/
  * Description:          Syncs your WooCommerce catalog to your Waiter24 account and adds the Waiter24 AI chat assistant to the storefront, so shoppers can ask questions and add products to the real WooCommerce cart from inside the chat.
- * Version:              1.10.1
+ * Version:              1.10.2
  * Requires at least:    6.5
  * Requires PHP:         7.4
  * Requires Plugins:     woocommerce
@@ -38,7 +38,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.10.1' );
+define( 'W24_EXPORT_VERSION', '1.10.2' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
 define( 'W24_CHUNK_HOOK', 'waiter24_export_chunk' ); // One background slice of a running export.
 define( 'W24_OPTION_KEY', 'waiter24_export_settings' );
@@ -202,6 +202,77 @@ function w24_maybe_reschedule_cron( $old_value, $value ) {
 }
 
 /**
+ * Has WP-Cron stopped firing?
+ *
+ * The scheduled export is a WP-Cron event, and WP-Cron only runs when the site
+ * receives traffic (or a real system cron calls wp-cron.php). Where it is
+ * disabled outright the event's timestamp simply sits in the past forever —
+ * that overdue timestamp is the signal.
+ *
+ * @return bool
+ */
+function w24_cron_looks_dead() {
+    $next = wp_next_scheduled( W24_CRON_HOOK );
+
+    return $next && $next < ( time() - HOUR_IN_SECONDS );
+}
+
+/**
+ * Run the missed scheduled export from wp-admin.
+ *
+ * On a site whose background tasks never fire, the scheduled export would never
+ * start at all. So an overdue schedule is picked up on any admin page load: this
+ * only *starts* the export (a couple of option writes, no catalog work), and the
+ * driver printed into the admin footer pushes the batches over AJAX while the
+ * owner is in the dashboard. The store therefore still syncs roughly as often as
+ * its owner logs in, instead of never.
+ */
+add_action( 'admin_init', 'w24_maybe_run_missed_schedule' );
+
+function w24_maybe_run_missed_schedule() {
+    if ( wp_doing_ajax() || ! current_user_can( 'manage_woocommerce' ) ) {
+        return;
+    }
+
+    // An export already under way will be carried on by the driver.
+    if ( w24_export_is_running() || ! w24_cron_looks_dead() ) {
+        return;
+    }
+
+    $settings = w24_get_settings();
+
+    if ( '' === trim( (string) $settings['import_token'] ) ) {
+        return;
+    }
+
+    // Push the schedule forward first, whatever happens next: a start that fails
+    // must not retry on every single admin page load.
+    $period = $settings['export_period'];
+    wp_clear_scheduled_hook( W24_CRON_HOOK );
+    wp_schedule_event( time() + w24_period_seconds( $period ), $period, W24_CRON_HOOK );
+
+    w24_start_export( 'cron' );
+}
+
+/**
+ * Length of an export period in seconds.
+ *
+ * @param string $period daily | weekly | monthly.
+ * @return int
+ */
+function w24_period_seconds( $period ) {
+    if ( 'weekly' === $period ) {
+        return WEEK_IN_SECONDS;
+    }
+
+    if ( 'monthly' === $period ) {
+        return 30 * DAY_IN_SECONDS;
+    }
+
+    return DAY_IN_SECONDS;
+}
+
+/**
  * =============================================
  *  ADMIN MENU & SETTINGS PAGE
  * =============================================
@@ -210,7 +281,7 @@ add_action( 'admin_menu', 'w24_add_admin_menu' );
 add_action( 'admin_init', 'w24_register_settings' );
 
 function w24_add_admin_menu() {
-    add_submenu_page(
+    $hook = add_submenu_page(
         'woocommerce',
         __( 'Waiter24 AI Assistant', 'waiter24-ai-assistant-for-woocommerce' ),
         __( 'Waiter24 AI Assistant', 'waiter24-ai-assistant-for-woocommerce' ),
@@ -221,6 +292,26 @@ function w24_add_admin_menu() {
         'waiter24-export',
         'w24_render_settings_page'
     );
+
+    w24_settings_screen_id( $hook );
+}
+
+/**
+ * Screen id of the settings page, remembered from add_submenu_page() rather
+ * than spelled out, so a change of parent menu cannot silently break the
+ * screen checks that depend on it.
+ *
+ * @param string|null $hook Hook suffix to store (pass nothing to read).
+ * @return string
+ */
+function w24_settings_screen_id( $hook = null ) {
+    static $stored = '';
+
+    if ( is_string( $hook ) && '' !== $hook ) {
+        $stored = $hook;
+    }
+
+    return $stored;
 }
 
 /**
@@ -550,49 +641,8 @@ function w24_render_settings_page() {
                     ?>
                 </span>
                 <br />
-                <?php esc_html_e( 'Keep this page open until the export finishes: if your site does not run background tasks, this page pushes the batches itself.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
+                <?php esc_html_e( 'Stay in the WordPress admin until the export finishes: if your site does not run background tasks, the admin pushes the batches itself.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
             </p>
-            <script>
-                ( function () {
-                    var endpoint = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
-                    var nonce    = <?php echo wp_json_encode( wp_create_nonce( 'waiter24_export_step' ) ); ?>;
-                    var counter  = document.getElementById( 'w24-export-count' );
-
-                    // Sequential, never on a timer: one call may spend a while
-                    // pushing a batch, and overlapping calls would race it.
-                    function step() {
-                        var body = new FormData();
-                        body.append( 'action', 'waiter24_export_step' );
-                        body.append( 'nonce', nonce );
-
-                        fetch( endpoint, { method: 'POST', body: body, credentials: 'same-origin' } )
-                            .then( function ( r ) { return r.json(); } )
-                            .then( function ( res ) {
-                                if ( ! res || ! res.success ) {
-                                    window.location.reload();
-                                    return;
-                                }
-
-                                if ( counter && res.data.label ) {
-                                    counter.textContent = res.data.label;
-                                }
-
-                                if ( ! res.data.running ) {
-                                    window.location.reload();
-                                    return;
-                                }
-
-                                // Pushing the batches ourselves: come straight
-                                // back for the next one. Merely watching a
-                                // working queue: check in every few seconds.
-                                setTimeout( step, res.data.driving ? 250 : 3000 );
-                            } )
-                            .catch( function () { setTimeout( step, 5000 ); } );
-                    }
-
-                    step();
-                } )();
-            </script>
         <?php endif; ?>
 
         <?php if ( $next_scheduled ) : ?>
@@ -889,17 +939,99 @@ function w24_run_export_chunk( $session, $page, $background = true ) {
 }
 
 /**
- * Drive a running export from the settings page.
+ * Drive a running export from wp-admin.
  *
  * Action Scheduler needs the site's background tasks to actually fire, and on
  * plenty of hosts they do not: WP-Cron is disabled, or loopback requests are
- * blocked, and the slice sits in the queue as "pending" forever. So the settings
+ * blocked, and the slice sits in the queue as "pending" forever. So every admin
  * page keeps asking — and if the queue has not moved the export for a while, it
- * runs the next slice itself, inside this request.
+ * runs the next slice itself, inside this request. The work happens in these
+ * AJAX calls, so no admin page is ever slowed down by it.
  *
  * One slice per call, and the page-match guard in w24_run_export_chunk() keeps
  * this from colliding with a queue runner that wakes up late.
  */
+/**
+ * Tell the owner why scheduled exports are not firing on their own.
+ *
+ * Shown on the plugin's own screen only — this is a fact about the site, not
+ * something to nag about on every page.
+ */
+add_action( 'admin_notices', 'w24_cron_notice' );
+
+function w24_cron_notice() {
+    $screen = get_current_screen();
+
+    if ( ! $screen || $screen->id !== w24_settings_screen_id() ) {
+        return;
+    }
+
+    if ( ! w24_cron_looks_dead() ) {
+        return;
+    }
+    ?>
+    <div class="notice notice-warning">
+        <p>
+            <strong><?php esc_html_e( 'Scheduled exports are not firing on this site.', 'waiter24-ai-assistant-for-woocommerce' ); ?></strong>
+            <?php esc_html_e( 'WordPress background tasks (WP-Cron) appear to be disabled or blocked by your host, and the schedule below depends on them. Waiter24 works around it by exporting while you are in the WordPress admin, so the catalog still syncs about as often as you sign in. For unattended sync, ask your host to run wp-cron.php with a real cron job.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
+        </p>
+    </div>
+    <?php
+}
+
+add_action( 'admin_footer', 'w24_print_export_driver' );
+
+function w24_print_export_driver() {
+    if ( ! current_user_can( 'manage_woocommerce' ) || ! w24_export_is_running() ) {
+        return;
+    }
+    ?>
+    <script>
+        ( function () {
+            var endpoint = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
+            var nonce    = <?php echo wp_json_encode( wp_create_nonce( 'waiter24_export_step' ) ); ?>;
+            var counter  = document.getElementById( 'w24-export-count' );
+
+            // Sequential, never on a timer: one call may spend a while pushing a
+            // batch, and overlapping calls would race it.
+            function step() {
+                var body = new FormData();
+                body.append( 'action', 'waiter24_export_step' );
+                body.append( 'nonce', nonce );
+
+                fetch( endpoint, { method: 'POST', body: body, credentials: 'same-origin' } )
+                    .then( function ( r ) { return r.json(); } )
+                    .then( function ( res ) {
+                        if ( ! res || ! res.success ) {
+                            return;
+                        }
+
+                        if ( counter && res.data.label ) {
+                            counter.textContent = res.data.label;
+                        }
+
+                        if ( ! res.data.running ) {
+                            // Only the settings page has a result to redraw.
+                            if ( counter ) {
+                                window.location.reload();
+                            }
+                            return;
+                        }
+
+                        // Pushing the batches ourselves: come straight back for
+                        // the next one. Merely watching a working queue: check in
+                        // every few seconds.
+                        setTimeout( step, res.data.driving ? 250 : 3000 );
+                    } )
+                    .catch( function () { setTimeout( step, 5000 ); } );
+            }
+
+            step();
+        } )();
+    </script>
+    <?php
+}
+
 add_action( 'wp_ajax_waiter24_export_step', 'w24_ajax_export_step' );
 
 function w24_ajax_export_step() {
