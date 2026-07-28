@@ -4,7 +4,7 @@ Tags: ai, chatbot, ai assistant, product recommendations, live chat
 Requires at least: 6.5
 Requires PHP: 7.4
 Tested up to: 7.0
-Stable tag: 1.9.0
+Stable tag: 1.10.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -28,7 +28,7 @@ The assistant only ever talks about the catalog you sync, so it does not invent 
 
 = Store-owner features =
 
-* **Manual export** — one "Export Now" button, with the outcome (products sent, or the exact error) reported on the settings page.
+* **Manual export** — one "Export Now" button, with live progress and the outcome (products sent, or the exact error) reported on the settings page. It runs in the background in batches, so a catalog of any size can neither time out nor exhaust memory.
 * **Scheduled sync** via WP-Cron: daily, weekly or monthly.
 * **Demo Mode** — the widget script is served only to visitors arriving on a special `?waiter24_demo=1` link; every other page is sent without it, so you can evaluate the assistant on a live store without customers seeing it.
 * **Simple Stock Mode** — export everything as in-stock (useful for made-to-order menus), or follow real WooCommerce stock.
@@ -103,7 +103,13 @@ Yes — turn on **Demo Mode**. The widget script is then added only to pages req
 
 = Which products are exported? =
 
-Every product with status "publish", including variable products with their available variations. Drafts, private and trashed products are skipped. Large catalogs are read in batches so the export does not exhaust PHP memory.
+Every product with status "publish", including variable products with their available variations. Drafts, private and trashed products are skipped. Large catalogs are read and pushed in batches, so the export exhausts neither PHP memory nor the request time limit.
+
+= I have thousands of products and the export times out =
+
+It cannot any more. Since 1.10.0 "Export Now" only *starts* the export: the work is handed to Action Scheduler (the background queue that ships with WooCommerce) and the catalog goes out in batches of 100 products, each its own short request. The settings page shows the running count and the final result.
+
+This does require the site's background tasks to run — the same WP-Cron / loopback mechanism WooCommerce itself uses. If your progress counter never moves, check WooCommerce → Status → Scheduled Actions.
 
 = Does the export delete anything in Waiter24? =
 
@@ -137,6 +143,11 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 4. A product added to the real WooCommerce cart from inside the chat — the cart total in the site header updates without a page reload.
 
 == Changelog ==
+
+= 1.10.0 =
+* Fixed: "Export Now" no longer dies with a "504 Gateway Timeout" on a large catalog. The store's web server used to cut the page off while PHP was still reading products; the export now runs in the background on Action Scheduler (WooCommerce's own queue) and pushes the catalog in batches of 100 products, each its own short request. Neither end ever holds the whole catalog. The settings page shows live progress while it runs.
+* Changed: batches of one export share an import session; only its closing call tells Waiter24 which products the store no longer sells. A run that dies half way therefore hides nothing — it just leaves the previous menu in place until the next export.
+* Changed: the batch size is 100 products (was 200 rows per query in one big push) and still filterable via `waiter24_export_batch_size`.
 
 = 1.9.0 =
 * Changed: Demo Mode is now enforced on the server. The widget script is left out of the page entirely unless the URL carries `?waiter24_demo=1`, instead of being loaded everywhere and hidden by the widget itself. A page cache or a script optimizer can no longer leak the widget to regular visitors, and the demo response is flagged as non-cacheable.
@@ -179,6 +190,9 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 * Catalog export and chat-widget injection.
 
 == Upgrade Notice ==
+
+= 1.10.0 =
+Large catalogs no longer time out: the export runs in the background and is pushed in batches. Upgrade if "Export Now" ever ended in a Gateway Timeout.
 
 = 1.9.0 =
 Demo Mode now hides the widget on the server: the script is not printed at all on pages without the demo parameter. Upgrade if Demo Mode seemed to have no effect on your store.

@@ -19,8 +19,15 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 
 delete_option( 'waiter24_export_settings' );
 delete_option( 'waiter24_export_last_run' );
+delete_option( 'waiter24_export_progress' );
 
 wp_clear_scheduled_hook( 'waiter24_scheduled_export' );
+
+// Background slices of an export that never finished (Action Scheduler, which
+// ships with WooCommerce — it may already be gone when this runs).
+if ( function_exists( 'as_unschedule_all_actions' ) ) {
+    as_unschedule_all_actions( 'waiter24_export_chunk' );
+}
 
 // Versions up to 1.7.0 also kept a local copy of the exported catalog under
 // wp-content/uploads/waiter24/. 1.8.0 stopped writing it; remove any leftover.
