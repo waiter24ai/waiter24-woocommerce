@@ -4,7 +4,7 @@ Tags: ai, chatbot, ai assistant, product recommendations, live chat
 Requires at least: 6.5
 Requires PHP: 7.4
 Tested up to: 7.0
-Stable tag: 1.10.3
+Stable tag: 1.11.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -103,7 +103,9 @@ Yes — turn on **Demo Mode**. The widget script is then added only to pages req
 
 = Which products are exported? =
 
-Every product with status "publish", including variable products with their available variations. Drafts, private and trashed products are skipped. Large catalogs are read and pushed in batches, so the export exhausts neither PHP memory nor the request time limit.
+Only products a shopper can actually reach: published, not password-protected, and not set to catalog visibility "Hidden". If your store hides out-of-stock items, those are left out too. Variable products are exported with their available variations. Drafts, private and trashed products are skipped.
+
+Large catalogs are read and pushed in batches, so the export exhausts neither PHP memory nor the request time limit.
 
 = I have thousands of products and the export times out =
 
@@ -149,6 +151,10 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 4. A product added to the real WooCommerce cart from inside the chat — the cart total in the site header updates without a page reload.
 
 == Changelog ==
+
+= 1.11.0 =
+* Changed: only products a shopper can actually reach are exported. "Published" is not the same as public in WooCommerce, so three groups are now left out: products whose catalog visibility is **Hidden**, **password-protected** products, and — when "Hide out of stock items" is switched on in WooCommerce → Settings → Products — **out-of-stock** products. Drafts, private and trashed products were skipped before and still are. Products already sent to Waiter24 that now fall outside this set are hidden there on the next export, not deleted.
+* Added: `waiter24_export_product_ids` filter for stores that need to decide this themselves.
 
 = 1.10.3 =
 * Fixed: on slow hosting the export stopped part-way through — a fixed batch of 50 products took longer to build than PHP's `max_execution_time` allowed, so the request was killed before it could send anything. Batches are now bounded by time rather than by a product count: each one builds for about 12 seconds and sends whatever it managed, so a slow store simply sends fewer products per batch instead of failing. Filterable via `waiter24_export_batch_seconds`.
@@ -211,6 +217,9 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 * Catalog export and chat-widget injection.
 
 == Upgrade Notice ==
+
+= 1.11.0 =
+The export is now limited to publicly visible products: hidden, password-protected and (where the store hides them) out-of-stock products are left out.
 
 = 1.10.3 =
 Fixes exports that stopped part-way on slow hosting. Batches now adapt to how fast your store actually is.

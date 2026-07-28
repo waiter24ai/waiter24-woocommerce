@@ -31,10 +31,18 @@ integrations (see [`examples/menu-import-sample.json`](examples/menu-import-samp
 
 ## What it does
 
-- **Export** (`w24_run_export` → `w24_build_item`): reads published products in
-  pages of 200 and builds the neutral menu JSON (categories/subcategories,
-  variations, sale prices, stock, WooCommerce cart selectors in `site_config`).
-  Paging is what keeps a multi-thousand-product catalog from exhausting memory.
+- **Export** (`w24_public_product_ids` → `w24_build_item`): builds the neutral
+  menu JSON (categories/subcategories, variations, sale prices, stock,
+  WooCommerce cart selectors in `site_config`) for the products a shopper can
+  actually reach. `publish` status is not enough on its own — three more sets
+  are subtracted as id lists (cheaper than loading products to ask them):
+  catalog-visibility **hidden** (`exclude-from-catalog` *and*
+  `exclude-from-search`), **password-protected**, and **out of stock** when
+  `woocommerce_hide_out_of_stock_items` is on. That last one applies even in
+  Simple Stock Mode: that toggle governs how availability is reported, not
+  whether the store shows the product. Stores that need their own rule have
+  `waiter24_export_product_ids`. Variations come from
+  `get_available_variations()`, which already drops disabled ones.
 - **Push** (`w24_save_and_notify`): `POST`s the JSON to the import endpoint with
   `Authorization: Bearer <import_token>`. The outcome (time, product count,
   error message) is stored in `waiter24_export_last_run` and shown on the
@@ -177,6 +185,9 @@ PUBLISHING.md                               submission + release runbook
 The user-facing changelog is maintained in [`readme.txt`](readme.txt) (that is
 what WordPress.org renders). Summary of the current release:
 
+- **1.11.0** — only publicly reachable products are exported (hidden,
+  password-protected and — where the store hides them — out-of-stock products
+  are left out); `waiter24_export_product_ids` filter.
 - **1.10.3** — slices are bounded by seconds, not by product count (a slow host
   was killed by `max_execution_time` half way through); catalogue pinned to an
   id snapshot; the admin driver retries a died batch instead of stopping

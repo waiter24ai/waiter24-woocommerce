@@ -3,7 +3,7 @@
  * Plugin Name:          Waiter24 AI Assistant for WooCommerce
  * Plugin URI:           https://waiter24.ai/
  * Description:          Syncs your WooCommerce catalog to your Waiter24 account and adds the Waiter24 AI chat assistant to the storefront, so shoppers can ask questions and add products to the real WooCommerce cart from inside the chat.
- * Version:              1.10.3
+ * Version:              1.11.0
  * Requires at least:    6.5
  * Requires PHP:         7.4
  * Requires Plugins:     woocommerce
@@ -38,7 +38,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.10.3' );
+define( 'W24_EXPORT_VERSION', '1.11.0' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
 define( 'W24_CHUNK_HOOK', 'waiter24_export_chunk' ); // One background slice of a running export.
 define( 'W24_OPTION_KEY', 'waiter24_export_settings' );
@@ -790,22 +790,12 @@ function w24_start_export( $trigger = 'cron' ) {
         return __( 'An export is already running.', 'waiter24-ai-assistant-for-woocommerce' );
     }
 
-    // The catalog is pinned to a list of ids up front — one cheap id-only query,
+    // The catalog is pinned to a list of ids up front — cheap id-only queries,
     // no product objects. Slices then walk that list by offset, which means a
     // product added or deleted mid-export cannot shift the paging under us and
     // make a slice skip (a skipped product would be hidden when the session
     // closes, so this is worth the option write).
-    $ids = wc_get_products(
-        array(
-            'status'  => 'publish',
-            'limit'   => -1,
-            'return'  => 'ids',
-            'orderby' => 'ID',
-            'order'   => 'ASC',
-        )
-    );
-
-    $ids = is_array( $ids ) ? array_values( array_map( 'intval', $ids ) ) : array();
+    $ids = w24_public_product_ids();
 
     if ( empty( $ids ) ) {
         return w24_record_run( __( 'No published products to export.', 'waiter24-ai-assistant-for-woocommerce' ), 0 );
@@ -845,6 +835,129 @@ function w24_start_export( $trigger = 'cron' ) {
     $last = get_option( W24_LAST_RUN_KEY, array() );
 
     return empty( $last['ok'] ) && ! empty( $last['message'] ) ? $last['message'] : true;
+}
+
+/**
+ * Ids of the products a shopper can actually reach.
+ *
+ * The assistant recommends what it is given, so anything a customer cannot open
+ * on the storefront has no business being in it. "Published" alone does not mean
+ * public in WooCommerce, so three more groups are dropped:
+ *
+ * - **Catalog visibility "hidden"** — carries both the `exclude-from-catalog`
+ *   and `exclude-from-search` terms. Typically component or add-on products the
+ *   store sells only as part of something else.
+ * - **Password-protected** — the page exists but its content does not open
+ *   without the password.
+ * - **Out of stock, when the store hides those** (WooCommerce → Settings →
+ *   Products → "Hide out of stock items"). The owner already decided customers
+ *   must not see them; the assistant offering them anyway would send shoppers to
+ *   a page they cannot buy from. Note this applies even in Simple Stock Mode:
+ *   that setting governs how availability is *reported*, not whether the store
+ *   shows the product at all.
+ *
+ * Private and draft products never enter the list — they are not `publish`.
+ *
+ * @return int[] Ascending product ids.
+ */
+function w24_public_product_ids() {
+    $ids = wc_get_products(
+        array(
+            'status'  => 'publish',
+            'limit'   => -1,
+            'return'  => 'ids',
+            'orderby' => 'ID',
+            'order'   => 'ASC',
+        )
+    );
+
+    $ids = is_array( $ids ) ? array_map( 'intval', $ids ) : array();
+
+    if ( empty( $ids ) ) {
+        return array();
+    }
+
+    $hide_out_of_stock = ( 'yes' === get_option( 'woocommerce_hide_out_of_stock_items' ) );
+
+    // Catalog visibility is stored as terms, so the non-public sets are read as
+    // id lists and subtracted — far cheaper than loading every product object
+    // just to ask it how visible it is.
+    $hidden = get_posts(
+        array(
+            'post_type'        => 'product',
+            'post_status'      => 'publish',
+            'fields'           => 'ids',
+            'numberposts'      => -1,
+            'suppress_filters' => false,
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query -- one-off query when an export starts, not a page-load query.
+            'tax_query'        => array(
+                'relation' => 'AND',
+                array(
+                    'taxonomy' => 'product_visibility',
+                    'field'    => 'name',
+                    'terms'    => 'exclude-from-catalog',
+                ),
+                array(
+                    'taxonomy' => 'product_visibility',
+                    'field'    => 'name',
+                    'terms'    => 'exclude-from-search',
+                ),
+            ),
+        )
+    );
+
+    $protected = get_posts(
+        array(
+            'post_type'        => 'product',
+            'post_status'      => 'publish',
+            'fields'           => 'ids',
+            'numberposts'      => -1,
+            'has_password'     => true,
+            'suppress_filters' => false,
+        )
+    );
+
+    $out_of_stock = array();
+
+    if ( $hide_out_of_stock ) {
+        $out_of_stock = get_posts(
+            array(
+                'post_type'        => 'product',
+                'post_status'      => 'publish',
+                'fields'           => 'ids',
+                'numberposts'      => -1,
+                'suppress_filters' => false,
+                // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query -- one-off query when an export starts, not a page-load query.
+                'tax_query'        => array(
+                    array(
+                        'taxonomy' => 'product_visibility',
+                        'field'    => 'name',
+                        'terms'    => 'outofstock',
+                    ),
+                ),
+            )
+        );
+    }
+
+    $excluded = array_map(
+        'intval',
+        array_merge(
+            is_array( $hidden ) ? $hidden : array(),
+            is_array( $protected ) ? $protected : array(),
+            is_array( $out_of_stock ) ? $out_of_stock : array()
+        )
+    );
+
+    if ( ! empty( $excluded ) ) {
+        $ids = array_diff( $ids, $excluded );
+    }
+
+    /**
+     * Filters the products an export sends.
+     *
+     * @param int[] $ids Product ids judged publicly visible.
+     */
+    return array_values( apply_filters( 'waiter24_export_product_ids', array_values( $ids ) ) );
 }
 
 /**
