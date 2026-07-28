@@ -4,7 +4,7 @@ Tags: ai, chatbot, ai assistant, product recommendations, live chat
 Requires at least: 6.5
 Requires PHP: 7.4
 Tested up to: 7.0
-Stable tag: 1.11.0
+Stable tag: 1.11.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -73,8 +73,8 @@ Waiter24 data processing agreement: https://waiter24.ai/en/dpa
 2. Install "Waiter24 AI Assistant for WooCommerce" from **Plugins → Add New**, or upload the ZIP under **Plugins → Add New → Upload Plugin**, then activate it.
 3. Create an account at [waiter24.ai](https://waiter24.ai/) if you do not have one.
 4. Go to **WooCommerce → Waiter24 AI Assistant** and fill in the two fields:
-   * **Unique Key** — the public widget key from your Waiter24 dashboard (Widget Settings).
-   * **Import Token** — the 48-character secret token from **Widget Settings → Menu auto-import**. These two are different values; using the widget key here returns a 401.
+   * **Unique Key** — the public widget key from your Waiter24 dashboard (Site Integration).
+   * **Import Token** — the 48-character secret token from **Site Integration → Menu auto-import**. These two are different values; using the widget key here returns a 401.
 5. Choose an **Export Period** and press **Save Settings**.
 6. Press **Export Now** to send the catalog immediately and confirm the connection works.
 7. Tick **Enable Chat Widget** to show the assistant on your storefront — or tick **Demo Mode** first if you want to preview it privately.
@@ -125,7 +125,7 @@ No. It replaces the contents of your primary Waiter24 menu. Items that no longer
 
 = The export fails with a 401 error. What is wrong? =
 
-The two keys are swapped. **Import Token** is the 48-character secret from *Widget Settings → Menu auto-import*; **Unique Key** is the short public widget key. Only the Import Token authenticates the export.
+The two keys are swapped. **Import Token** is the 48-character secret from *Site Integration → Menu auto-import*; **Unique Key** is the short public widget key. Only the Import Token authenticates the export.
 
 = Nothing happens on schedule. Why? =
 
@@ -151,6 +151,9 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 4. A product added to the real WooCommerce cart from inside the chat — the cart total in the site header updates without a page reload.
 
 == Changelog ==
+
+= 1.11.1 =
+* Changed: the plugin settings screen and the documentation now point at the "Site Integration" page in your Waiter24 dashboard, which is where the widget key and the import token moved. Text only — nothing about the export or the widget behaves differently.
 
 = 1.11.0 =
 * Changed: only products a shopper can actually reach are exported. "Published" is not the same as public in WooCommerce, so three groups are now left out: products whose catalog visibility is **Hidden**, **password-protected** products, and — when "Hide out of stock items" is switched on in WooCommerce → Settings → Products — **out-of-stock** products. Drafts, private and trashed products were skipped before and still are. Products already sent to Waiter24 that now fall outside this set are hidden there on the next export, not deleted.
@@ -217,6 +220,9 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 * Catalog export and chat-widget injection.
 
 == Upgrade Notice ==
+
+= 1.11.1 =
+Text-only update: the help text now points at the renamed "Site Integration" page in your Waiter24 dashboard.
 
 = 1.11.0 =
 The export is now limited to publicly visible products: hidden, password-protected and (where the store hides them) out-of-stock products are left out.

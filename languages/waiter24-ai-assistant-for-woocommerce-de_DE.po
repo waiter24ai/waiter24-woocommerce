@@ -3,7 +3,7 @@
 # This file is distributed under the same license as the plugin.
 msgid ""
 msgstr ""
-"Project-Id-Version: Waiter24 AI Assistant for WooCommerce 1.11.0\n"
+"Project-Id-Version: Waiter24 AI Assistant for WooCommerce 1.11.1\n"
 "Report-Msgid-Bugs-To: https://waiter24.ai/\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: Waiter24 <support@waiter24.ai>\n"
@@ -91,13 +91,13 @@ msgstr "Import-Token eingeben"
 
 #: waiter24-ai-assistant-for-woocommerce.php:514
 msgid ""
-"The 48-character Import Token from your Waiter24 dashboard (Widget → Menu "
-"auto-import tab). This is NOT the Unique (widget) Key above — using the "
+"The 48-character Import Token from your Waiter24 dashboard (Site Integration "
+"→ Menu auto-import). This is NOT the Unique (widget) Key above — using the "
 "wrong value returns a 401 error."
 msgstr ""
-"Der 48-stellige Import-Token aus Ihrem Waiter24-Dashboard (Widget → Tab "
-"„Menü-Auto-Import\"). Das ist NICHT der Unique-(Widget-)Schlüssel oben — ein "
-"falscher Wert führt zu einem 401-Fehler."
+"Der 48-stellige Import-Token aus Ihrem Waiter24-Dashboard (Website-Anbindung "
+"→ „Menü-Auto-Import\"). Das ist NICHT der Unique-(Widget-)Schlüssel oben — "
+"ein falscher Wert führt zu einem 401-Fehler."
 
 #: waiter24-ai-assistant-for-woocommerce.php:522
 msgid "Export Period"
@@ -240,11 +240,11 @@ msgstr "WooCommerce ist nicht aktiv."
 #: waiter24-ai-assistant-for-woocommerce.php:784
 #: waiter24-ai-assistant-for-woocommerce.php:1640
 msgid ""
-"Import Token is empty. Paste it from the Menu auto-import tab in your "
-"Waiter24 dashboard."
+"Import Token is empty. Paste it from the Menu auto-import block in your "
+"Waiter24 dashboard (Site Integration)."
 msgstr ""
-"Import-Token ist leer. Fügen Sie ihn aus dem Tab „Menü-Auto-Import\" in "
-"Ihrem Waiter24-Dashboard ein."
+"Import-Token ist leer. Fügen Sie ihn aus dem Block „Menü-Auto-Import\" in "
+"Ihrem Waiter24-Dashboard ein (Website-Anbindung)."
 
 #: waiter24-ai-assistant-for-woocommerce.php:790
 msgid "An export is already running."

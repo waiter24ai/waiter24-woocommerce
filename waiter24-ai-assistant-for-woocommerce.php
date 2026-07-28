@@ -3,7 +3,7 @@
  * Plugin Name:          Waiter24 AI Assistant for WooCommerce
  * Plugin URI:           https://waiter24.ai/
  * Description:          Syncs your WooCommerce catalog to your Waiter24 account and adds the Waiter24 AI chat assistant to the storefront, so shoppers can ask questions and add products to the real WooCommerce cart from inside the chat.
- * Version:              1.11.0
+ * Version:              1.11.1
  * Requires at least:    6.5
  * Requires PHP:         7.4
  * Requires Plugins:     woocommerce
@@ -38,7 +38,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.11.0' );
+define( 'W24_EXPORT_VERSION', '1.11.1' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
 define( 'W24_CHUNK_HOOK', 'waiter24_export_chunk' ); // One background slice of a running export.
 define( 'W24_OPTION_KEY', 'waiter24_export_settings' );
@@ -511,7 +511,7 @@ function w24_render_settings_page() {
                             placeholder="<?php esc_attr_e( 'Enter import token', 'waiter24-ai-assistant-for-woocommerce' ); ?>"
                         />
                         <p class="description">
-                            <?php esc_html_e( 'The 48-character Import Token from your Waiter24 dashboard (Widget → Menu auto-import tab). This is NOT the Unique (widget) Key above — using the wrong value returns a 401 error.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
+                            <?php esc_html_e( 'The 48-character Import Token from your Waiter24 dashboard (Site Integration → Menu auto-import). This is NOT the Unique (widget) Key above — using the wrong value returns a 401 error.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
                         </p>
                     </td>
                 </tr>
@@ -781,7 +781,7 @@ function w24_start_export( $trigger = 'cron' ) {
 
     if ( '' === trim( (string) $settings['import_token'] ) ) {
         return w24_record_run(
-            __( 'Import Token is empty. Paste it from the Menu auto-import tab in your Waiter24 dashboard.', 'waiter24-ai-assistant-for-woocommerce' ),
+            __( 'Import Token is empty. Paste it from the Menu auto-import block in your Waiter24 dashboard (Site Integration).', 'waiter24-ai-assistant-for-woocommerce' ),
             0
         );
     }
@@ -1637,7 +1637,7 @@ function w24_save_and_notify( $data ) {
     $import_token = trim( (string) $settings['import_token'] );
 
     if ( '' === $import_token ) {
-        return __( 'Import Token is empty. Paste it from the Menu auto-import tab in your Waiter24 dashboard.', 'waiter24-ai-assistant-for-woocommerce' );
+        return __( 'Import Token is empty. Paste it from the Menu auto-import block in your Waiter24 dashboard (Site Integration).', 'waiter24-ai-assistant-for-woocommerce' );
     }
 
     $response = wp_remote_post(

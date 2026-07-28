@@ -136,7 +136,7 @@ in one request, and `get_price() + addons` compounds the surcharge on each pass.
 | Field | Meaning |
 |-------|---------|
 | **Unique Key** | Public **widget key** — loads the chat widget. |
-| **Import Token** | Secret token (Waiter24 dashboard → Widget Settings → Menu auto-import). Authenticates the menu push. |
+| **Import Token** | Secret token (Waiter24 dashboard → Site Integration → Menu auto-import). Authenticates the menu push. |
 | **Export Period** | WP-Cron frequency. |
 | **Enable Chat Widget** | Inject the widget on the storefront. |
 | **Demo Mode** | Narrows **Enable Chat Widget** to demo links: the script is printed only on requests carrying `?waiter24_demo=1`, so regular visitors get a page without it. The settings page shows a ready demo link. Links the assistant opens keep the parameter; a page opened without it has no chat. |

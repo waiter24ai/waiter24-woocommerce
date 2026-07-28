@@ -3,7 +3,7 @@
 # This file is distributed under the same license as the plugin.
 msgid ""
 msgstr ""
-"Project-Id-Version: Waiter24 AI Assistant for WooCommerce 1.11.0\n"
+"Project-Id-Version: Waiter24 AI Assistant for WooCommerce 1.11.1\n"
 "Report-Msgid-Bugs-To: https://waiter24.ai/\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: Waiter24 <support@waiter24.ai>\n"
@@ -90,12 +90,12 @@ msgstr "Saisissez le jeton d'import"
 
 #: waiter24-ai-assistant-for-woocommerce.php:514
 msgid ""
-"The 48-character Import Token from your Waiter24 dashboard (Widget → Menu "
-"auto-import tab). This is NOT the Unique (widget) Key above — using the "
+"The 48-character Import Token from your Waiter24 dashboard (Site Integration "
+"→ Menu auto-import). This is NOT the Unique (widget) Key above — using the "
 "wrong value returns a 401 error."
 msgstr ""
 "Le jeton d'import de 48 caractères depuis votre tableau de bord Waiter24 "
-"(Widget → onglet « Import auto du menu »). Ce n'est PAS la clé Unique "
+"(Intégration au site → « Import auto du menu »). Ce n'est PAS la clé Unique "
 "(widget) ci-dessus — une mauvaise valeur renvoie une erreur 401."
 
 #: waiter24-ai-assistant-for-woocommerce.php:522
@@ -242,11 +242,11 @@ msgstr "WooCommerce n'est pas actif."
 #: waiter24-ai-assistant-for-woocommerce.php:784
 #: waiter24-ai-assistant-for-woocommerce.php:1640
 msgid ""
-"Import Token is empty. Paste it from the Menu auto-import tab in your "
-"Waiter24 dashboard."
+"Import Token is empty. Paste it from the Menu auto-import block in your "
+"Waiter24 dashboard (Site Integration)."
 msgstr ""
-"Le jeton d'import est vide. Collez-le depuis l'onglet « Import auto du menu "
-"» de votre tableau de bord Waiter24."
+"Le jeton d'import est vide. Collez-le depuis le bloc « Import auto du menu » "
+"de votre tableau de bord Waiter24 (Intégration au site)."
 
 #: waiter24-ai-assistant-for-woocommerce.php:790
 msgid "An export is already running."
