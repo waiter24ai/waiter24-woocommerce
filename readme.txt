@@ -4,7 +4,7 @@ Tags: ai, chatbot, ai assistant, product recommendations, live chat
 Requires at least: 6.5
 Requires PHP: 7.4
 Tested up to: 7.0
-Stable tag: 1.8.0
+Stable tag: 1.9.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -30,7 +30,7 @@ The assistant only ever talks about the catalog you sync, so it does not invent 
 
 * **Manual export** — one "Export Now" button, with the outcome (products sent, or the exact error) reported on the settings page.
 * **Scheduled sync** via WP-Cron: daily, weekly or monthly.
-* **Demo Mode** — the widget stays invisible to normal shoppers and appears only for visitors arriving on a special `?waiter24_demo=1` link, so you can evaluate the assistant on a live store without customers seeing it.
+* **Demo Mode** — the widget script is served only to visitors arriving on a special `?waiter24_demo=1` link; every other page is sent without it, so you can evaluate the assistant on a live store without customers seeing it.
 * **Simple Stock Mode** — export everything as in-stock (useful for made-to-order menus), or follow real WooCommerce stock.
 * **Add-ons** — quantity-priced extras the assistant can offer ("+2 extra cheese") are attached to the cart line, priced into the line total, and copied onto the order so you can fulfil them.
 * Translated into German, French and Ukrainian.
@@ -61,7 +61,7 @@ No customer data, order data, user account data or admin credentials are ever in
 * their IP address and user agent, as with any third-party request;
 * optionally, the contents of their WooCommerce cart, if you enable the cart-aware option in your Waiter24 dashboard.
 
-Because visitor data is sent to a third party, disclose Waiter24 in your own privacy policy and obtain consent where your jurisdiction requires it (for example, under the GDPR). The widget is not loaded at all while "Enable Chat Widget" is off, and only on demo links while "Demo Mode" is on.
+Because visitor data is sent to a third party, disclose Waiter24 in your own privacy policy and obtain consent where your jurisdiction requires it (for example, under the GDPR). The widget script is not sent to the page at all while "Enable Chat Widget" is off, and only on demo links while "Demo Mode" is on.
 
 Waiter24 terms of service: https://waiter24.ai/en/terms
 Waiter24 privacy policy: https://waiter24.ai/en/privacy
@@ -99,7 +99,7 @@ No. It answers from the catalog you sync, and it does not receive anything else 
 
 = Can I try it without customers seeing it? =
 
-Yes — turn on **Demo Mode**. The widget then loads only for visitors who arrive with `?waiter24_demo=1` in the URL (the settings page gives you a ready link). The parameter is remembered for that browsing session, so the chat stays visible while you click around.
+Yes — turn on **Demo Mode**. The widget script is then added only to pages requested with `?waiter24_demo=1` in the URL (the settings page gives you a ready link); every other page is served without it, so regular shoppers never load the chat. Links the assistant opens keep the parameter, so the chat stays visible while you browse the demo.
 
 = Which products are exported? =
 
@@ -138,6 +138,10 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 
 == Changelog ==
 
+= 1.9.0 =
+* Changed: Demo Mode is now enforced on the server. The widget script is left out of the page entirely unless the URL carries `?waiter24_demo=1`, instead of being loaded everywhere and hidden by the widget itself. A page cache or a script optimizer can no longer leak the widget to regular visitors, and the demo response is flagged as non-cacheable.
+* Changed: the demo is no longer remembered for the whole browsing session. Links the assistant opens still carry the parameter; opening a page without it hides the chat again.
+
 = 1.8.0 =
 * First release on WordPress.org. Relicensed under GPLv2 or later.
 * Security: add-on values arriving from the browser are now clamped — a negative price can no longer reduce a cart line's total, and quantity, name length and add-on count are bounded.
@@ -175,6 +179,9 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 * Catalog export and chat-widget injection.
 
 == Upgrade Notice ==
+
+= 1.9.0 =
+Demo Mode now hides the widget on the server: the script is not printed at all on pages without the demo parameter. Upgrade if Demo Mode seemed to have no effect on your store.
 
 = 1.8.0 =
 Security and correctness release: add-on prices from the browser are now validated, and the add-on surcharge can no longer be applied twice to one cart line. Add-ons are also saved onto the order. The plugin no longer writes a copy of your catalog into wp-content/uploads.

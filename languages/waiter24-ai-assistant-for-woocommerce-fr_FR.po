@@ -3,7 +3,7 @@
 # This file is distributed under the same license as the plugin.
 msgid ""
 msgstr ""
-"Project-Id-Version: Waiter24 AI Assistant for WooCommerce 1.8.0\n"
+"Project-Id-Version: Waiter24 AI Assistant for WooCommerce 1.9.0\n"
 "Report-Msgid-Bugs-To: https://waiter24.ai/\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: Waiter24 <support@waiter24.ai>\n"
@@ -121,8 +121,8 @@ msgstr "Afficher le widget de chat uniquement aux visiteurs qui arrivent via le 
 #. translators: %s: the demo GET parameter name.
 #: waiter24-ai-assistant-for-woocommerce.php:436
 #, php-format
-msgid "When enabled, the widget stays hidden for regular visitors and appears only on URLs carrying the \"%s\" parameter. The parameter is then remembered for the browsing session and re-applied to links the assistant opens, so the chat stays visible while you click around."
-msgstr "Lorsque cette option est activée, le widget reste masqué pour les visiteurs ordinaires et n'apparaît que sur les URL contenant le paramètre « %s ». Le paramètre est ensuite mémorisé pour la session de navigation et réappliqué aux liens que l'assistant ouvre, afin que le chat reste visible pendant la navigation."
+msgid "When enabled, the widget script is not added to the page at all unless the URL carries the \"%s\" parameter, so regular visitors never load it. The \"Enable Chat Widget\" switch above still has to be on. Links the assistant opens keep the parameter, so the chat stays visible while you browse the demo."
+msgstr "Lorsque cette option est activée, le script du widget n'est pas inséré dans la page tant que l'URL ne contient pas le paramètre « %s » : les visiteurs ordinaires ne le chargent donc jamais. L'option « Activer le widget de chat » ci-dessus doit rester activée. Les liens ouverts par l'assistant conservent le paramètre, afin que le chat reste visible pendant la démo."
 
 #: waiter24-ai-assistant-for-woocommerce.php:442
 msgid "Open demo:"
