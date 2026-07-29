@@ -3,7 +3,7 @@
  * Plugin Name:          Waiter24 AI Assistant for WooCommerce
  * Plugin URI:           https://waiter24.ai/
  * Description:          Syncs your WooCommerce catalog to your Waiter24 account and adds the Waiter24 AI chat assistant to the storefront, so shoppers can ask questions and add products to the real WooCommerce cart from inside the chat.
- * Version:              1.11.1
+ * Version:              1.12.0
  * Requires at least:    6.5
  * Requires PHP:         7.4
  * Requires Plugins:     woocommerce
@@ -38,7 +38,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.11.1' );
+define( 'W24_EXPORT_VERSION', '1.12.0' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
 define( 'W24_CHUNK_HOOK', 'waiter24_export_chunk' ); // One background slice of a running export.
 define( 'W24_OPTION_KEY', 'waiter24_export_settings' );
@@ -96,7 +96,12 @@ function w24_get_defaults() {
     return array(
         'unique_key'        => '', // Public widget key (data-key on the chat script).
         'import_token'      => '', // Secret token authenticating the menu push.
-        'export_period'     => 'daily',
+        // 'off' means the catalog is only ever sent when the owner asks for it.
+        // A fresh install must not start pushing a catalog nobody asked it to
+        // push, so automatic sync is opt-in. Stores set up before 1.12.0 already
+        // have an explicit period saved ('daily' by default), so this default
+        // never reaches them and their schedule keeps running untouched.
+        'export_period'     => 'off',
         'enable_widget'     => 0,
         'demo_mode'         => 0, // When on, the widget only loads on URLs carrying the demo param.
         'simple_stock_mode' => 1, // Enabled by default.
@@ -166,12 +171,40 @@ function w24_custom_cron_schedules( $schedules ) {
 }
 
 /**
- * Make sure the recurring export is scheduled, without ever firing immediately:
- * a run scheduled at time() would go out before the store owner has pasted the
- * Import Token and would only produce a failed push.
+ * Is automatic sync switched on?
+ *
+ * @return bool
+ */
+function w24_auto_sync_enabled() {
+    $settings = w24_get_settings();
+
+    return 'off' !== $settings['export_period'];
+}
+
+/**
+ * Keep the recurring export in step with the setting.
+ *
+ * Two rules, and both matter:
+ *
+ * - Automatic sync off means *no* schedule exists. Nothing may push the catalog
+ *   behind the owner's back — not the cron event, and not the admin-side driver
+ *   that picks up an overdue one.
+ * - A run is never scheduled at time(): it would go out before the owner has
+ *   pasted the Import Token and would only produce a failed push.
  */
 function w24_ensure_cron() {
-    if ( wp_next_scheduled( W24_CRON_HOOK ) ) {
+    $enabled = w24_auto_sync_enabled();
+    $next    = wp_next_scheduled( W24_CRON_HOOK );
+
+    if ( ! $enabled ) {
+        if ( $next ) {
+            wp_clear_scheduled_hook( W24_CRON_HOOK );
+        }
+
+        return;
+    }
+
+    if ( $next ) {
         return;
     }
 
@@ -193,7 +226,13 @@ add_action( 'update_option_' . W24_OPTION_KEY, 'w24_maybe_reschedule_cron', 10, 
 
 function w24_maybe_reschedule_cron( $old_value, $value ) {
     $old_period = ( is_array( $old_value ) && isset( $old_value['export_period'] ) ) ? $old_value['export_period'] : '';
-    $new_period = ( is_array( $value ) && isset( $value['export_period'] ) ) ? $value['export_period'] : 'daily';
+    $new_period = ( is_array( $value ) && isset( $value['export_period'] ) ) ? $value['export_period'] : 'off';
+
+    if ( 'off' === $new_period ) {
+        wp_clear_scheduled_hook( W24_CRON_HOOK );
+
+        return;
+    }
 
     if ( $old_period === $new_period && wp_next_scheduled( W24_CRON_HOOK ) ) {
         return;
@@ -233,6 +272,12 @@ add_action( 'admin_init', 'w24_maybe_run_missed_schedule' );
 
 function w24_maybe_run_missed_schedule() {
     if ( wp_doing_ajax() || ! current_user_can( 'manage_woocommerce' ) ) {
+        return;
+    }
+
+    // Automatic sync off: there is no schedule to catch up on, and an export the
+    // owner did not ask for must never start from a page load.
+    if ( ! w24_auto_sync_enabled() ) {
         return;
     }
 
@@ -362,10 +407,12 @@ function w24_sanitize_settings( $input ) {
         ? sanitize_text_field( $input['import_token'] )
         : '';
 
-    $allowed_periods            = array( 'daily', 'weekly', 'monthly' );
+    // 'off' is both a valid choice and the fallback: an unrecognised value must
+    // not switch automatic sync on for a store that never asked for it.
+    $allowed_periods            = array( 'off', 'daily', 'weekly', 'monthly' );
     $sanitized['export_period'] = ( isset( $input['export_period'] ) && in_array( $input['export_period'], $allowed_periods, true ) )
         ? $input['export_period']
-        : 'daily';
+        : 'off';
 
     $sanitized['enable_widget']     = empty( $input['enable_widget'] ) ? 0 : 1;
     $sanitized['demo_mode']         = empty( $input['demo_mode'] ) ? 0 : 1;
@@ -516,17 +563,21 @@ function w24_render_settings_page() {
                     </td>
                 </tr>
 
-                <!-- Export Period -->
+                <!-- Automatic Sync -->
                 <tr>
                     <th scope="row">
-                        <label for="w24_export_period"><?php esc_html_e( 'Export Period', 'waiter24-ai-assistant-for-woocommerce' ); ?></label>
+                        <label for="w24_export_period"><?php esc_html_e( 'Automatic Sync', 'waiter24-ai-assistant-for-woocommerce' ); ?></label>
                     </th>
                     <td>
                         <select id="w24_export_period" name="<?php echo esc_attr( W24_OPTION_KEY ); ?>[export_period]">
+                            <option value="off"     <?php selected( $export_period, 'off' ); ?>><?php esc_html_e( 'Off — export only when I click the button', 'waiter24-ai-assistant-for-woocommerce' ); ?></option>
                             <option value="daily"   <?php selected( $export_period, 'daily' ); ?>><?php esc_html_e( 'Daily', 'waiter24-ai-assistant-for-woocommerce' ); ?></option>
                             <option value="weekly"  <?php selected( $export_period, 'weekly' ); ?>><?php esc_html_e( 'Weekly', 'waiter24-ai-assistant-for-woocommerce' ); ?></option>
                             <option value="monthly" <?php selected( $export_period, 'monthly' ); ?>><?php esc_html_e( 'Monthly', 'waiter24-ai-assistant-for-woocommerce' ); ?></option>
                         </select>
+                        <p class="description">
+                            <?php esc_html_e( 'How often the catalog is sent to Waiter24 on its own. While this is off, nothing is exported unless you press "Export Now" below.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
+                        </p>
                     </td>
                 </tr>
 
@@ -639,7 +690,11 @@ function w24_render_settings_page() {
             </p>
         <?php endif; ?>
 
-        <?php if ( $next_scheduled ) : ?>
+        <?php if ( 'off' === $export_period ) : ?>
+            <p class="description">
+                <?php esc_html_e( 'Automatic sync is off — the catalog is sent only when you press "Export Now".', 'waiter24-ai-assistant-for-woocommerce' ); ?>
+            </p>
+        <?php elseif ( $next_scheduled ) : ?>
             <p class="description">
                 <?php esc_html_e( 'Next scheduled export:', 'waiter24-ai-assistant-for-woocommerce' ); ?>
                 <strong><?php echo esc_html( get_date_from_gmt( gmdate( 'Y-m-d H:i:s', $next_scheduled ), 'd.m.Y H:i:s' ) ); ?></strong>
@@ -756,8 +811,26 @@ function w24_widget_script_tag( $tag, $handle, $src ) {
  *  EXPORT LOGIC
  * =============================================
  */
-add_action( W24_CRON_HOOK, 'w24_start_export' );
+add_action( W24_CRON_HOOK, 'w24_run_scheduled_export' );
 add_action( W24_CHUNK_HOOK, 'w24_run_export_chunk', 10, 2 );
+
+/**
+ * The scheduled export, with a last check that it is still wanted.
+ *
+ * A leftover cron event must never push a catalog the owner switched sync off
+ * for: the event can outlive the setting (switched off while wp-cron.php was
+ * already on its way, or an event carried over by a site migration). The check
+ * costs one option read, at most once a day.
+ */
+function w24_run_scheduled_export() {
+    if ( ! w24_auto_sync_enabled() ) {
+        wp_clear_scheduled_hook( W24_CRON_HOOK );
+
+        return;
+    }
+
+    w24_start_export( 'cron' );
+}
 
 /**
  * Start an export.
@@ -1501,20 +1574,8 @@ function w24_build_item( $product, $currency, $simple_stock ) {
     }
 
     // --- Photo ---
-    // Export the "medium" thumbnail rather than the full-size original: the
-    // widget renders product photos small, so the lighter file loads faster with
-    // no visible quality loss. WordPress falls back to the full size when the
-    // 'medium' image was never generated. Filterable so a site owner can pick
-    // another registered size (e.g. 'woocommerce_thumbnail' or 'large').
     $image_id  = $product->get_image_id();
-    $photo_url = null;
-    if ( $image_id ) {
-        $image_size = apply_filters( 'waiter24_export_image_size', 'medium', $product );
-        $photo_url  = wp_get_attachment_image_url( $image_id, $image_size );
-        if ( ! $photo_url ) {
-            $photo_url = wp_get_attachment_url( $image_id );
-        }
-    }
+    $photo_url = $image_id ? w24_product_image_url( (int) $image_id, $product ) : null;
 
     // --- Price ---
     $price      = $product->get_regular_price();
@@ -1617,6 +1678,154 @@ function w24_build_item( $product, $currency, $simple_stock ) {
     $item['sort_order']   = (int) $product->get_menu_order();
 
     return $item;
+}
+
+/**
+ * URL of a product photo, small enough to belong in a chat message.
+ *
+ * The widget renders product photos in small cards, so the full-size original —
+ * often several megabytes of shop photography — is wasted bandwidth on every
+ * message that mentions the product. The exported size is therefore the WordPress
+ * 'thumbnail' (150×150, cropped on a default install), and two things WordPress
+ * does not handle on its own are handled here:
+ *
+ * - `wp_get_attachment_image_url()` quietly falls back to the **original** when
+ *   the requested size was never generated. Catalogs filled by a CSV importer or
+ *   a store migration routinely carry no sub-sizes at all, so every product came
+ *   out full-size and nothing said so.
+ * - A missing size is generated once, on the spot, and recorded in the
+ *   attachment metadata — so the next export, and the storefront, reuse it.
+ *
+ * Falls back through the sizes a store is most likely to already have and, in
+ * the last resort, the original: a 120px original has nothing smaller to offer.
+ *
+ * @param int        $image_id Attachment id.
+ * @param WC_Product $product  Product being exported.
+ * @return string|null
+ */
+function w24_product_image_url( $image_id, $product ) {
+    /**
+     * Registered image size to export.
+     *
+     * @param string     $size    Registered image size name.
+     * @param WC_Product $product Product being exported.
+     */
+    $size = apply_filters( 'waiter24_export_image_size', 'thumbnail', $product );
+
+    $candidates = array_unique( array( $size, 'thumbnail', 'woocommerce_thumbnail', 'medium' ) );
+
+    foreach ( $candidates as $candidate ) {
+        $url = w24_intermediate_image_url( $image_id, $candidate );
+
+        if ( $url ) {
+            return $url;
+        }
+    }
+
+    $original = wp_get_attachment_url( $image_id );
+
+    return $original ? $original : null;
+}
+
+/**
+ * URL of a genuinely resized copy — never the original dressed up as one.
+ *
+ * @param int    $image_id Attachment id.
+ * @param string $size     Registered image size name.
+ * @return string|null Null when this size is not available for this image.
+ */
+function w24_intermediate_image_url( $image_id, $size ) {
+    $src = wp_get_attachment_image_src( $image_id, $size );
+
+    // The fourth element is WordPress saying whether it really had a resized
+    // copy; false means it handed back the original instead.
+    if ( is_array( $src ) && ! empty( $src[3] ) && ! empty( $src[0] ) ) {
+        return $src[0];
+    }
+
+    return w24_generate_intermediate_size( $image_id, $size );
+}
+
+/**
+ * Make the missing sub-size for an image the store never generated one for.
+ *
+ * @param int    $image_id Attachment id.
+ * @param string $size     Registered image size name.
+ * @return string|null URL of the new file, or null when it could not be made.
+ */
+function w24_generate_intermediate_size( $image_id, $size ) {
+    /**
+     * Whether the export may generate image sizes the store is missing.
+     *
+     * Turning this off means such products export at full size again.
+     *
+     * @param bool   $allowed  Whether generating is allowed.
+     * @param int    $image_id Attachment id.
+     * @param string $size     Registered image size name.
+     */
+    if ( ! apply_filters( 'waiter24_generate_missing_image_sizes', true, $image_id, $size ) ) {
+        return null;
+    }
+
+    $registered = wp_get_registered_image_subsizes();
+
+    if ( ! isset( $registered[ $size ] ) ) {
+        return null;
+    }
+
+    // Vector and animated sources are left alone: rasterising an SVG gains
+    // nothing, and resizing a GIF drops its animation.
+    if ( in_array( get_post_mime_type( $image_id ), array( 'image/svg+xml', 'image/gif' ), true ) ) {
+        return null;
+    }
+
+    $file = get_attached_file( $image_id );
+
+    if ( ! $file || ! file_exists( $file ) ) {
+        return null;
+    }
+
+    require_once ABSPATH . 'wp-admin/includes/image.php';
+
+    $resized = image_make_intermediate_size(
+        $file,
+        (int) $registered[ $size ]['width'],
+        (int) $registered[ $size ]['height'],
+        (bool) $registered[ $size ]['crop']
+    );
+
+    // False means the original is already no bigger than the size asked for —
+    // there is nothing to shrink, and the original is the small file.
+    if ( ! is_array( $resized ) || empty( $resized['file'] ) ) {
+        return null;
+    }
+
+    $meta = wp_get_attachment_metadata( $image_id );
+
+    if ( is_array( $meta ) ) {
+        if ( ! isset( $meta['sizes'] ) || ! is_array( $meta['sizes'] ) ) {
+            $meta['sizes'] = array();
+        }
+
+        $meta['sizes'][ $size ] = $resized;
+        wp_update_attachment_metadata( $image_id, $meta );
+
+        $src = wp_get_attachment_image_src( $image_id, $size );
+
+        if ( is_array( $src ) && ! empty( $src[3] ) && ! empty( $src[0] ) ) {
+            return $src[0];
+        }
+    }
+
+    // Nothing to register the new file in (an attachment with no metadata), so
+    // its URL is built from the original's — they share a directory.
+    $original = wp_get_attachment_url( $image_id );
+
+    if ( ! $original ) {
+        return null;
+    }
+
+    return trailingslashit( dirname( $original ) ) . wp_basename( $resized['file'] );
 }
 
 /**
