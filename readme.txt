@@ -4,7 +4,7 @@ Tags: ai, chatbot, ai assistant, product recommendations, live chat
 Requires at least: 6.5
 Requires PHP: 7.4
 Tested up to: 7.0
-Stable tag: 1.11.1
+Stable tag: 1.12.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -14,7 +14,7 @@ Sync your WooCommerce catalog to Waiter24 and add an AI chat assistant that answ
 
 **Waiter24 AI Assistant for WooCommerce** connects your store to [Waiter24](https://waiter24.ai/), an AI sales-assistant service, and does two things:
 
-1. **Keeps your catalog in sync.** Published products — names, descriptions, prices, sale prices, categories, tags, images, weight, stock and variations — are sent to your Waiter24 account on a schedule (daily, weekly or monthly) or on demand with one button.
+1. **Keeps your catalog in sync.** Published products — names, descriptions, prices, sale prices, categories, tags, images, weight, stock and variations — are sent to your Waiter24 account with one button, and on a schedule (daily, weekly or monthly) once you switch automatic sync on.
 2. **Puts the assistant on your storefront.** One checkbox loads the Waiter24 chat widget, which answers questions about your products in your shopper's own language and can add items straight to the **real WooCommerce cart** without a page reload.
 
 The assistant only ever talks about the catalog you sync, so it does not invent products, prices or availability.
@@ -75,8 +75,8 @@ Waiter24 data processing agreement: https://waiter24.ai/en/dpa
 4. Go to **WooCommerce → Waiter24 AI Assistant** and fill in the two fields:
    * **Unique Key** — the public widget key from your Waiter24 dashboard (Site Integration).
    * **Import Token** — the 48-character secret token from **Site Integration → Menu auto-import**. These two are different values; using the widget key here returns a 401.
-5. Choose an **Export Period** and press **Save Settings**.
-6. Press **Export Now** to send the catalog immediately and confirm the connection works.
+5. Press **Save Settings**.
+6. Press **Export Now** to send the catalog and confirm the connection works. Nothing is exported until you do — **Automatic Sync** is off on a new install; set it to Daily, Weekly or Monthly once you are happy with the result.
 7. Tick **Enable Chat Widget** to show the assistant on your storefront — or tick **Demo Mode** first if you want to preview it privately.
 
 == Frequently Asked Questions ==
@@ -152,6 +152,11 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 
 == Changelog ==
 
+= 1.12.0 =
+* Fixed: a fresh install no longer exports the catalog on its own. Automatic sync used to be on from the moment the plugin was activated, so the first export went out without anyone pressing anything — and on a site whose WP-Cron does not fire, an overdue schedule started the export straight from a WordPress admin page. **Automatic Sync** is now a setting of its own, off by default: a new install exports only when you press "Export Now". Stores that already chose Daily, Weekly or Monthly keep that schedule — nothing changes for them.
+* Fixed: product photos were exported at their original size on many stores. The export asked for the "medium" size, and WordPress silently hands back the full-size original whenever that size was never generated — which is the normal state of a catalog filled by a CSV importer or a store migration. Photos are now exported at WordPress's "thumbnail" size (150×150, cropped on a default install), and a missing size is generated once and saved, so it is reused afterwards.
+* Added: `waiter24_generate_missing_image_sizes` filter to switch that generating off, and `waiter24_export_image_size` (which already existed) now defaults to `thumbnail`.
+
 = 1.11.1 =
 * Changed: the plugin settings screen and the documentation now point at the "Site Integration" page in your Waiter24 dashboard, which is where the widget key and the import token moved. Text only — nothing about the export or the widget behaves differently.
 
@@ -220,6 +225,9 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 * Catalog export and chat-widget injection.
 
 == Upgrade Notice ==
+
+= 1.12.0 =
+New installs no longer export on their own — automatic sync is off until you choose a schedule. Existing schedules are untouched. Product photos are now exported at thumbnail size instead of, on many stores, the full-size original.
 
 = 1.11.1 =
 Text-only update: the help text now points at the renamed "Site Integration" page in your Waiter24 dashboard.

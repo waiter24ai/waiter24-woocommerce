@@ -48,9 +48,14 @@ integrations (see [`examples/menu-import-sample.json`](examples/menu-import-samp
   error message) is stored in `waiter24_export_last_run` and shown on the
   settings page — a 401 usually means the Import Token and the Unique Key were
   swapped.
-- **Sync**: scheduled via WP-Cron (daily / weekly / monthly) plus a manual
-  **Export Now** button. The schedule is created one hour out, never at `time()`,
-  so activation cannot fire an export before the token has been entered.
+- **Sync**: a manual **Export Now** button, plus an optional WP-Cron schedule
+  (daily / weekly / monthly). `export_period` defaults to `off` and **no cron
+  event exists while it is off** (`w24_ensure_cron()` clears any leftover) — a
+  fresh install must never push a catalog nobody asked it to push. Stores set up
+  before 1.12.0 have an explicit period saved, so the new default never reaches
+  them and their schedule survives the upgrade. When on, the schedule is created
+  one hour out, never at `time()`, so switching it on cannot fire an export
+  before the token has been entered.
 - **Batching** (`w24_start_export` → `w24_run_export_chunk` → `w24_finalize_export`):
   the catalog is never built inside the request that asks for it — that is what
   produced "504 Gateway Timeout" on big stores. `w24_start_export()` pins the
@@ -80,7 +85,9 @@ integrations (see [`examples/menu-import-sample.json`](examples/menu-import-samp
 - **Schedule without cron.** The recurring export is a WP-Cron event, so the
   same dead-cron site would never sync unattended. `w24_maybe_run_missed_schedule()`
   (`admin_init`) treats an event overdue by more than an hour as "WP-Cron is
-  dead" and starts the export right there — starting is two option writes, the
+  dead" and starts the export right there — but only while automatic sync is on:
+  with it off there is no schedule to catch up on, and an admin page load must
+  never start an export on its own — starting is two option writes, the
   catalogue work happens in the AJAX driver above, so no admin page load is
   slowed. The schedule is pushed forward *before* the attempt, so a failing
   start cannot retry on every page load. `w24_cron_notice()` states the
@@ -125,7 +132,8 @@ in one request, and `get_price() + addons` compounds the surcharge on each pass.
 
 | Filter | Default | Purpose |
 |--------|---------|---------|
-| `waiter24_export_image_size` | `medium` | Registered image size used for `photo_url`. |
+| `waiter24_export_image_size` | `thumbnail` | Registered image size used for `photo_url`. Missing sub-sizes are generated on the spot rather than silently falling back to the full-size original — see `w24_product_image_url()`. |
+| `waiter24_generate_missing_image_sizes` | `true` | Whether the export may generate an image size the store never made. Off means such products export at full size. |
 | `waiter24_export_batch_size` | `200` | Products fetched per page during export (clamped 1–500). |
 | `waiter24_cart_line_addons` | — | Accept/reject/reprice add-ons before they touch a cart line. |
 | `waiter24_max_addons_per_line` | `20` | Cap on add-ons per cart line. |
@@ -137,7 +145,7 @@ in one request, and `get_price() + addons` compounds the surcharge on each pass.
 |-------|---------|
 | **Unique Key** | Public **widget key** — loads the chat widget. |
 | **Import Token** | Secret token (Waiter24 dashboard → Site Integration → Menu auto-import). Authenticates the menu push. |
-| **Export Period** | WP-Cron frequency. |
+| **Automatic Sync** | Off (default) / Daily / Weekly / Monthly. Off means no WP-Cron event exists and only **Export Now** sends the catalog. |
 | **Enable Chat Widget** | Inject the widget on the storefront. |
 | **Demo Mode** | Narrows **Enable Chat Widget** to demo links: the script is printed only on requests carrying `?waiter24_demo=1`, so regular visitors get a page without it. The settings page shows a ready demo link. Links the assistant opens keep the parameter; a page opened without it has no chat. |
 | **Simple Stock Mode** | Always export products as in-stock. |
@@ -185,6 +193,11 @@ PUBLISHING.md                               submission + release runbook
 The user-facing changelog is maintained in [`readme.txt`](readme.txt) (that is
 what WordPress.org renders). Summary of the current release:
 
+- **1.12.0** — automatic sync is a setting of its own and off by default, so a
+  fresh install exports nothing until **Export Now** is pressed (existing
+  schedules are untouched); photos export at `thumbnail` size, and a sub-size
+  the store never generated is created instead of silently falling back to the
+  full-size original.
 - **1.11.0** — only publicly reachable products are exported (hidden,
   password-protected and — where the store hides them — out-of-stock products
   are left out); `waiter24_export_product_ids` filter.
