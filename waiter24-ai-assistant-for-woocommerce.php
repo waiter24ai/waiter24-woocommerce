@@ -3,7 +3,7 @@
  * Plugin Name:          Waiter24 AI Assistant for WooCommerce
  * Plugin URI:           https://waiter24.ai/
  * Description:          Syncs your WooCommerce catalog to your Waiter24 account and adds the Waiter24 AI chat assistant to the storefront, so shoppers can ask questions and add products to the real WooCommerce cart from inside the chat.
- * Version:              1.13.0
+ * Version:              1.14.0
  * Requires at least:    6.5
  * Requires PHP:         7.4
  * Requires Plugins:     woocommerce
@@ -38,7 +38,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.13.0' );
+define( 'W24_EXPORT_VERSION', '1.14.0' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
 define( 'W24_CHUNK_HOOK', 'waiter24_export_chunk' ); // One background slice of a running export.
 define( 'W24_OPTION_KEY', 'waiter24_export_settings' );
@@ -57,6 +57,15 @@ define( 'W24_WIDGET_URL', 'https://waiter24.ai/widget.js' );
 define( 'W24_DEMO_PARAM', 'waiter24_demo' ); // GET param that reveals the widget in demo mode.
 define( 'W24_SCRIPT_HANDLE', 'waiter24-widget' );
 
+// The plugin's own image size, so exported photos do not depend on what the
+// store did to Settings → Media. Stores set "thumbnail" to anything: 768px wide
+// is a real, observed value, and a 768px photo in a chat bubble is a full-size
+// download for the shopper. See w24_product_image_url().
+define( 'W24_IMAGE_SIZE', 'waiter24_thumb' );
+define( 'W24_IMAGE_PX', 150 );
+// Smallest sub-size still worth sending when W24_IMAGE_SIZE cannot be produced.
+define( 'W24_IMAGE_MIN_PX', 100 );
+
 /**
  * =============================================
  *  LOAD TEXT DOMAIN
@@ -70,6 +79,32 @@ function w24_load_textdomain() {
         false,
         dirname( plugin_basename( __FILE__ ) ) . '/languages'
     );
+}
+
+/**
+ * =============================================
+ *  EXPORT IMAGE SIZE
+ * =============================================
+ * Registering our own 150×150 size means every future upload already has the
+ * copy the export wants, and that copy is the same on every store — unlike
+ * WordPress's "thumbnail", whose dimensions are a per-store setting.
+ */
+add_action( 'after_setup_theme', 'w24_register_image_size' );
+
+function w24_register_image_size() {
+    /**
+     * Whether to register the plugin's own image size.
+     *
+     * Turning this off saves one small file per upload, at the cost of exporting
+     * whatever sub-size the store happens to have.
+     *
+     * @param bool $register Whether to register the size.
+     */
+    if ( ! apply_filters( 'waiter24_register_image_size', true ) ) {
+        return;
+    }
+
+    add_image_size( W24_IMAGE_SIZE, W24_IMAGE_PX, W24_IMAGE_PX, true );
 }
 
 /**
@@ -525,7 +560,11 @@ function w24_render_settings_page() {
     $progress       = w24_export_progress();
     ?>
     <div class="wrap">
-        <h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
+        <h1>
+            <?php echo esc_html( get_admin_page_title() ); ?>
+            <?php /* Version, so a support question never starts with "which one are you running?". */ ?>
+            <span style="font-size:13px;font-weight:400;color:#646970">v<?php echo esc_html( W24_EXPORT_VERSION ); ?></span>
+        </h1>
 
         <p class="description" style="max-width:640px">
             <?php
@@ -842,6 +881,28 @@ function w24_render_settings_page() {
                     <?php esc_html_e( 'failed:', 'waiter24-ai-assistant-for-woocommerce' ); ?>
                     <?php echo esc_html( isset( $last_run['message'] ) ? $last_run['message'] : '' ); ?>
                 <?php endif; ?>
+
+                <?php if ( ! empty( $last_run['photos'] ) ) : ?>
+                    <br />
+                    <?php
+                    $photos_full    = (int) ( isset( $last_run['photos_full'] ) ? $last_run['photos_full'] : 0 );
+                    $photos_resized = (int) $last_run['photos'] - $photos_full;
+
+                    printf(
+                        /* translators: 1: photos exported as a small copy, 2: photos exported at their original size. */
+                        esc_html__( 'Photos: %1$d resized, %2$d sent at full size.', 'waiter24-ai-assistant-for-woocommerce' ),
+                        (int) $photos_resized,
+                        (int) $photos_full
+                    );
+                    ?>
+
+                    <?php if ( $photos_full > 0 ) : ?>
+                        <br />
+                        <span style="color:#b32d2e">
+                            <?php esc_html_e( 'Full-size photos make the chat slow to load. WordPress could not produce a smaller copy of those images — the usual reasons are a plugin that blocks thumbnail generation, media hosted off-site, or GIF/SVG files.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
+                        </span>
+                    <?php endif; ?>
+                <?php endif; ?>
             </p>
         <?php endif; ?>
     </div>
@@ -1004,14 +1065,16 @@ function w24_start_export( $trigger = 'cron' ) {
 
     w24_set_progress(
         array(
-            'status'  => 'running',
-            'session' => $session,
-            'page'    => 1,
-            'sent'    => 0,
-            'total'   => count( $ids ),
-            'trigger' => 'manual' === $trigger ? 'manual' : 'cron',
-            'driver'  => 'queue',
-            'started' => time(),
+            'status'      => 'running',
+            'session'     => $session,
+            'page'        => 1,
+            'sent'        => 0,
+            'total'       => count( $ids ),
+            'trigger'     => 'manual' === $trigger ? 'manual' : 'cron',
+            'driver'      => 'queue',
+            'started'     => time(),
+            'photos'      => 0,
+            'photos_full' => 0,
         )
     );
 
@@ -1064,7 +1127,7 @@ function w24_cancel_export() {
     w24_set_progress( $progress );
     delete_option( W24_QUEUE_KEY );
 
-    w24_record_run( '', (int) $progress['sent'], true );
+    w24_record_run( '', (int) $progress['sent'], true, $progress );
 
     return true;
 }
@@ -1410,6 +1473,12 @@ function w24_run_export_chunk( $session, $sequence, $background = true ) {
     $consumed = count( $items );
     $items    = array_values( array_filter( $items ) );
 
+    // Photos this slice built, folded into the run's running totals below —
+    // read here, before the push, so a failed push still reports what it saw.
+    $tally                   = w24_take_photo_tally();
+    $progress['photos']      = (int) $progress['photos'] + (int) $tally['photos'];
+    $progress['photos_full'] = (int) $progress['photos_full'] + (int) $tally['full'];
+
     $payload = array(
         'items'          => $items,
         'import_session' => $session,
@@ -1426,7 +1495,7 @@ function w24_run_export_chunk( $session, $sequence, $background = true ) {
 
     if ( true !== $result ) {
         w24_set_progress( array( 'status' => 'error' ) + $progress );
-        w24_record_run( $result, (int) $progress['sent'] );
+        w24_record_run( $result, (int) $progress['sent'], false, $progress );
 
         return false;
     }
@@ -1437,14 +1506,16 @@ function w24_run_export_chunk( $session, $sequence, $background = true ) {
 
     w24_set_progress(
         array(
-            'status'  => 'running',
-            'session' => $session,
-            'page'    => $page + 1,
-            'sent'    => $sent,
-            'total'   => (int) $progress['total'],
-            'trigger' => $progress['trigger'],
-            'driver'  => $progress['driver'],
-            'started' => $progress['started'],
+            'status'      => 'running',
+            'session'     => $session,
+            'page'        => $page + 1,
+            'sent'        => $sent,
+            'total'       => (int) $progress['total'],
+            'trigger'     => $progress['trigger'],
+            'driver'      => $progress['driver'],
+            'started'     => $progress['started'],
+            'photos'      => (int) $progress['photos'],
+            'photos_full' => (int) $progress['photos_full'],
         )
     );
 
@@ -1647,7 +1718,7 @@ function w24_finalize_export( $session, $sent ) {
     w24_set_progress( $progress );
     delete_option( W24_QUEUE_KEY );
 
-    return w24_record_run( $result, (int) $sent );
+    return w24_record_run( $result, (int) $sent, false, $progress );
 }
 
 /**
@@ -1697,15 +1768,17 @@ function w24_new_session_id() {
  */
 function w24_export_progress() {
     $defaults = array(
-        'status'  => 'idle',  // idle | running | done | error | cancelled
-        'session' => '',
-        'page'    => 1,
-        'sent'    => 0,
-        'total'   => 0,
-        'trigger' => 'cron',
-        'driver'  => 'queue', // queue | page — who is pushing the slices.
-        'started' => 0,
-        'updated' => 0,
+        'status'      => 'idle',  // idle | running | done | error | cancelled
+        'session'     => '',
+        'page'        => 1,
+        'sent'        => 0,
+        'total'       => 0,
+        'trigger'     => 'cron',
+        'driver'      => 'queue', // queue | page — who is pushing the slices.
+        'started'     => 0,
+        'updated'     => 0,
+        'photos'      => 0,       // Products carrying a photo, so far.
+        'photos_full' => 0,       // …of which went out at their original size.
     );
 
     $saved = get_option( W24_PROGRESS_KEY, array() );
@@ -1800,17 +1873,23 @@ function w24_site_config() {
  * @param int         $count     Number of exported products.
  * @param bool        $cancelled Whether the run was stopped by the store owner
  *                               — shown as "cancelled", not as a failure.
+ * @param array|null  $progress  Progress of the run, for the photo totals.
  * @return true|string The untouched $result, so callers can return it directly.
  */
-function w24_record_run( $result, $count, $cancelled = false ) {
+function w24_record_run( $result, $count, $cancelled = false, $progress = null ) {
     update_option(
         W24_LAST_RUN_KEY,
         array(
-            'time'      => time(),
-            'items'     => (int) $count,
-            'ok'        => ( true === $result ),
-            'message'   => is_string( $result ) ? $result : '',
-            'cancelled' => (bool) $cancelled,
+            'time'        => time(),
+            'items'       => (int) $count,
+            'ok'          => ( true === $result ),
+            'message'     => is_string( $result ) ? $result : '',
+            'cancelled'   => (bool) $cancelled,
+            // How the photos went. A run that never reached a product with a
+            // photo stores zeros, which the settings page reads as "nothing to
+            // report" rather than "no photos were resized".
+            'photos'      => is_array( $progress ) ? (int) $progress['photos'] : 0,
+            'photos_full' => is_array( $progress ) ? (int) $progress['photos_full'] : 0,
         ),
         false
     );
@@ -1983,19 +2062,26 @@ function w24_build_item( $product, $currency, $simple_stock ) {
  *
  * The widget renders product photos in small cards, so the full-size original —
  * often several megabytes of shop photography — is wasted bandwidth on every
- * message that mentions the product. The exported size is therefore the WordPress
- * 'thumbnail' (150×150, cropped on a default install), and two things WordPress
- * does not handle on its own are handled here:
+ * message that mentions the product. Getting a genuinely small URL out of
+ * WordPress takes more care than it looks, and every step below exists because
+ * a real store broke the obvious version:
  *
- * - `wp_get_attachment_image_url()` quietly falls back to the **original** when
- *   the requested size was never generated. Catalogs filled by a CSV importer or
- *   a store migration routinely carry no sub-sizes at all, so every product came
- *   out full-size and nothing said so.
- * - A missing size is generated once, on the spot, and recorded in the
- *   attachment metadata — so the next export, and the storefront, reuse it.
- *
- * Falls back through the sizes a store is most likely to already have and, in
- * the last resort, the original: a 120px original has nothing smaller to offer.
+ * - **The requested size is the plugin's own** (`waiter24_thumb`, 150×150), not
+ *   WordPress's 'thumbnail'. "Thumbnail" is a per-store setting, and stores move
+ *   it: one catalog we looked at had it at 768×414, so its "thumbnails" were
+ *   600–750px files — a full-size download as far as a chat bubble is concerned.
+ * - **`$is_intermediate` is not evidence.** The fourth element of
+ *   `wp_get_attachment_image_src()` comes from whatever answered the
+ *   `image_downsize` filter, and themes in the wild answer it with the original
+ *   file flagged as a resized copy. The file name is checked against the
+ *   original's instead — that cannot be argued with.
+ * - **Attachment metadata is read directly** before asking WordPress, so a theme
+ *   or CDN filter cannot stand between the export and a sub-size that exists.
+ * - **A missing size is generated once**, on the spot, and recorded in the
+ *   metadata, so the next export and the storefront reuse it.
+ * - **Failing all that**, the smallest sub-size the store already has is used —
+ *   the original is the last resort, and it is counted (see w24_tally_photo)
+ *   so the settings page can say how many photos went out full size.
  *
  * @param int        $image_id Attachment id.
  * @param WC_Product $product  Product being exported.
@@ -2008,50 +2094,241 @@ function w24_product_image_url( $image_id, $product ) {
      * @param string     $size    Registered image size name.
      * @param WC_Product $product Product being exported.
      */
-    $size = apply_filters( 'waiter24_export_image_size', 'thumbnail', $product );
+    $size = apply_filters( 'waiter24_export_image_size', W24_IMAGE_SIZE, $product );
 
-    $candidates = array_unique( array( $size, 'thumbnail', 'woocommerce_thumbnail', 'medium' ) );
+    $original = w24_attachment_url( $image_id );
+    $url      = w24_intermediate_image_url( $image_id, $size, $original );
 
-    foreach ( $candidates as $candidate ) {
-        $url = w24_intermediate_image_url( $image_id, $candidate );
-
-        if ( $url ) {
-            return $url;
-        }
+    if ( ! $url ) {
+        $url = w24_smallest_stored_image_url( $image_id, $original );
     }
 
-    $original = wp_get_attachment_url( $image_id );
+    w24_tally_photo( (bool) $url );
 
-    return $original ? $original : null;
+    return $url ? $url : $original;
+}
+
+/**
+ * The attachment's own URL, normalised to null when WordPress has none.
+ *
+ * @param int $image_id Attachment id.
+ * @return string|null
+ */
+function w24_attachment_url( $image_id ) {
+    $url = wp_get_attachment_url( $image_id );
+
+    return ( is_string( $url ) && '' !== $url ) ? $url : null;
 }
 
 /**
  * URL of a genuinely resized copy — never the original dressed up as one.
  *
- * @param int    $image_id Attachment id.
- * @param string $size     Registered image size name.
+ * @param int         $image_id Attachment id.
+ * @param string      $size     Registered image size name.
+ * @param string|null $original URL of the full-size original, if already known.
  * @return string|null Null when this size is not available for this image.
  */
-function w24_intermediate_image_url( $image_id, $size ) {
+function w24_intermediate_image_url( $image_id, $size, $original = null ) {
+    if ( null === $original ) {
+        $original = w24_attachment_url( $image_id );
+    }
+
+    // Metadata first: it is the only answer no filter can rewrite.
+    $stored = w24_stored_size_url( $image_id, $size, $original );
+
+    if ( $stored ) {
+        return $stored;
+    }
+
+    // Then WordPress, so an image CDN that serves resized copies through the
+    // `image_downsize` filter still gets its say — verified, not trusted.
     $src = wp_get_attachment_image_src( $image_id, $size );
 
-    // The fourth element is WordPress saying whether it really had a resized
-    // copy; false means it handed back the original instead.
-    if ( is_array( $src ) && ! empty( $src[3] ) && ! empty( $src[0] ) ) {
+    if ( is_array( $src ) && ! empty( $src[0] ) && w24_is_resized_url( $src[0], $original ) ) {
         return $src[0];
     }
 
-    return w24_generate_intermediate_size( $image_id, $size );
+    return w24_generate_intermediate_size( $image_id, $size, $original );
+}
+
+/**
+ * URL of a sub-size recorded in the attachment's own metadata.
+ *
+ * @param int         $image_id Attachment id.
+ * @param string      $size     Registered image size name.
+ * @param string|null $original URL of the full-size original.
+ * @return string|null
+ */
+function w24_stored_size_url( $image_id, $size, $original ) {
+    if ( ! $original ) {
+        return null;
+    }
+
+    $meta = wp_get_attachment_metadata( $image_id );
+
+    if ( ! is_array( $meta ) || empty( $meta['sizes'][ $size ]['file'] ) ) {
+        return null;
+    }
+
+    return w24_sibling_url( $original, $meta['sizes'][ $size ]['file'] );
+}
+
+/**
+ * Smallest resized copy the store already has, when the size we want cannot be
+ * produced (media hosted off-site, no image editor, an animated GIF).
+ *
+ * Chosen by measured pixels rather than by size name, because names say nothing
+ * about dimensions: on the store that prompted this, 'thumbnail' was 625×414
+ * while 'woocommerce_thumbnail' — the one further down every by-name list — was
+ * the smaller 500px file.
+ *
+ * @param int         $image_id Attachment id.
+ * @param string|null $original URL of the full-size original.
+ * @return string|null
+ */
+function w24_smallest_stored_image_url( $image_id, $original ) {
+    if ( ! $original ) {
+        return null;
+    }
+
+    $meta = wp_get_attachment_metadata( $image_id );
+
+    if ( ! is_array( $meta ) || empty( $meta['sizes'] ) || ! is_array( $meta['sizes'] ) ) {
+        return null;
+    }
+
+    $original_px = max( (int) ( isset( $meta['width'] ) ? $meta['width'] : 0 ), (int) ( isset( $meta['height'] ) ? $meta['height'] : 0 ) );
+
+    $best     = null; // Smallest copy still big enough to look at in a card.
+    $best_px  = 0;
+    $tiny     = null; // Largest of the too-small ones — better than the original.
+    $tiny_px  = 0;
+
+    foreach ( $meta['sizes'] as $data ) {
+        if ( ! is_array( $data ) || empty( $data['file'] ) ) {
+            continue;
+        }
+
+        $px = max( (int) ( isset( $data['width'] ) ? $data['width'] : 0 ), (int) ( isset( $data['height'] ) ? $data['height'] : 0 ) );
+
+        // Not measurably smaller than the original is not worth swapping to.
+        if ( $px < 1 || ( $original_px && $px >= $original_px ) ) {
+            continue;
+        }
+
+        if ( $px >= W24_IMAGE_MIN_PX ) {
+            if ( null === $best || $px < $best_px ) {
+                $best    = $data['file'];
+                $best_px = $px;
+            }
+        } elseif ( null === $tiny || $px > $tiny_px ) {
+            $tiny    = $data['file'];
+            $tiny_px = $px;
+        }
+    }
+
+    $file = ( null !== $best ) ? $best : $tiny;
+
+    return $file ? w24_sibling_url( $original, $file ) : null;
+}
+
+/**
+ * Does this URL point at something other than the full-size original?
+ *
+ * @param string      $url      URL to judge.
+ * @param string|null $original URL of the full-size original.
+ * @return bool
+ */
+function w24_is_resized_url( $url, $original ) {
+    if ( ! is_string( $url ) || '' === $url ) {
+        return false;
+    }
+
+    if ( ! $original ) {
+        return true; // Nothing to compare against; take what we were given.
+    }
+
+    if ( w24_url_without_query( $url ) !== w24_url_without_query( $original ) ) {
+        return true;
+    }
+
+    // Same file. Only an image CDN that resizes through query arguments
+    // (`?w=150`, `?resize=150,150`) can still be handing back a smaller copy.
+    return (bool) wp_parse_url( $url, PHP_URL_QUERY );
+}
+
+/**
+ * URL of a file sitting next to the original — every sub-size WordPress makes
+ * shares its directory.
+ *
+ * @param string $original URL of the full-size original.
+ * @param string $file     File name of the sub-size.
+ * @return string
+ */
+function w24_sibling_url( $original, $file ) {
+    return trailingslashit( dirname( w24_url_without_query( $original ) ) ) . wp_basename( $file );
+}
+
+/**
+ * @param string $url URL to trim.
+ * @return string The URL without its query string.
+ */
+function w24_url_without_query( $url ) {
+    $parts = explode( '?', (string) $url, 2 );
+
+    return $parts[0];
+}
+
+/**
+ * Count one exported photo, so the settings page can report how the run went.
+ *
+ * Kept in a global rather than an option: an export slice is one request, and
+ * the totals are folded into the progress option once per slice.
+ *
+ * @param bool $resized Whether a smaller copy was found or made.
+ */
+function w24_tally_photo( $resized ) {
+    if ( ! isset( $GLOBALS['w24_photo_tally'] ) || ! is_array( $GLOBALS['w24_photo_tally'] ) ) {
+        $GLOBALS['w24_photo_tally'] = array(
+            'photos' => 0,
+            'full'   => 0,
+        );
+    }
+
+    ++$GLOBALS['w24_photo_tally']['photos'];
+
+    if ( ! $resized ) {
+        ++$GLOBALS['w24_photo_tally']['full'];
+    }
+}
+
+/**
+ * Read and reset this request's photo tally.
+ *
+ * @return array{photos:int, full:int}
+ */
+function w24_take_photo_tally() {
+    $tally = ( isset( $GLOBALS['w24_photo_tally'] ) && is_array( $GLOBALS['w24_photo_tally'] ) )
+        ? $GLOBALS['w24_photo_tally']
+        : array(
+            'photos' => 0,
+            'full'   => 0,
+        );
+
+    unset( $GLOBALS['w24_photo_tally'] );
+
+    return $tally;
 }
 
 /**
  * Make the missing sub-size for an image the store never generated one for.
  *
- * @param int    $image_id Attachment id.
- * @param string $size     Registered image size name.
+ * @param int         $image_id Attachment id.
+ * @param string      $size     Registered image size name.
+ * @param string|null $original URL of the full-size original, if already known.
  * @return string|null URL of the new file, or null when it could not be made.
  */
-function w24_generate_intermediate_size( $image_id, $size ) {
+function w24_generate_intermediate_size( $image_id, $size, $original = null ) {
     /**
      * Whether the export may generate image sizes the store is missing.
      *
@@ -2098,6 +2375,8 @@ function w24_generate_intermediate_size( $image_id, $size ) {
         return null;
     }
 
+    // Record it, so the next export — and the storefront — reuse the new file
+    // instead of making it again.
     $meta = wp_get_attachment_metadata( $image_id );
 
     if ( is_array( $meta ) ) {
@@ -2107,23 +2386,16 @@ function w24_generate_intermediate_size( $image_id, $size ) {
 
         $meta['sizes'][ $size ] = $resized;
         wp_update_attachment_metadata( $image_id, $meta );
-
-        $src = wp_get_attachment_image_src( $image_id, $size );
-
-        if ( is_array( $src ) && ! empty( $src[3] ) && ! empty( $src[0] ) ) {
-            return $src[0];
-        }
     }
 
-    // Nothing to register the new file in (an attachment with no metadata), so
-    // its URL is built from the original's — they share a directory.
-    $original = wp_get_attachment_url( $image_id );
-
-    if ( ! $original ) {
-        return null;
+    // The URL is built from the original's rather than read back through
+    // wp_get_attachment_image_src(): we know exactly which file was just written,
+    // and a theme filtering `image_downsize` would only get in the way.
+    if ( null === $original ) {
+        $original = w24_attachment_url( $image_id );
     }
 
-    return trailingslashit( dirname( $original ) ) . wp_basename( $resized['file'] );
+    return $original ? w24_sibling_url( $original, $resized['file'] ) : null;
 }
 
 /**
@@ -2142,6 +2414,14 @@ function w24_generate_intermediate_size( $image_id, $size ) {
  *                     human-readable error message.
  */
 function w24_save_and_notify( $data ) {
+    // Who is pushing. Waiter24 stores this with the import history, so a menu
+    // that looks wrong can be traced to the plugin version that sent it instead
+    // of being guessed at. Older Waiter24 releases ignore unknown keys.
+    $data['client'] = array(
+        'platform' => 'woocommerce',
+        'version'  => W24_EXPORT_VERSION,
+    );
+
     $json = wp_json_encode( $data, JSON_UNESCAPED_UNICODE );
 
     if ( false === $json ) {
