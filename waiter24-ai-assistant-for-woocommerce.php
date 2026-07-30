@@ -3,7 +3,7 @@
  * Plugin Name:          Waiter24 AI Assistant for WooCommerce
  * Plugin URI:           https://waiter24.ai/
  * Description:          Syncs your WooCommerce catalog to your Waiter24 account and adds the Waiter24 AI chat assistant to the storefront, so shoppers can ask questions and add products to the real WooCommerce cart from inside the chat.
- * Version:              1.12.0
+ * Version:              1.13.0
  * Requires at least:    6.5
  * Requires PHP:         7.4
  * Requires Plugins:     woocommerce
@@ -38,7 +38,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.12.0' );
+define( 'W24_EXPORT_VERSION', '1.13.0' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
 define( 'W24_CHUNK_HOOK', 'waiter24_export_chunk' ); // One background slice of a running export.
 define( 'W24_OPTION_KEY', 'waiter24_export_settings' );
@@ -105,6 +105,10 @@ function w24_get_defaults() {
         'enable_widget'     => 0,
         'demo_mode'         => 0, // When on, the widget only loads on URLs carrying the demo param.
         'simple_stock_mode' => 1, // Enabled by default.
+        // 'auto' follows Polylang/WPML's own default-language setting; 'all'
+        // turns the filter off; anything else is one of that plugin's language
+        // codes. Ignored entirely on a store without a multilingual plugin.
+        'export_language'   => 'auto',
     );
 }
 
@@ -418,6 +422,16 @@ function w24_sanitize_settings( $input ) {
     $sanitized['demo_mode']         = empty( $input['demo_mode'] ) ? 0 : 1;
     $sanitized['simple_stock_mode'] = empty( $input['simple_stock_mode'] ) ? 0 : 1;
 
+    // 'auto' and 'all' are always valid; any other value must be a language
+    // code the site is actually set up for, otherwise fall back to 'auto'
+    // rather than silently exporting an empty (mismatched-language) catalog.
+    $raw_language = isset( $input['export_language'] ) ? sanitize_key( $input['export_language'] ) : 'auto';
+    if ( in_array( $raw_language, array( 'auto', 'all' ), true ) || array_key_exists( $raw_language, w24_available_languages() ) ) {
+        $sanitized['export_language'] = $raw_language;
+    } else {
+        $sanitized['export_language'] = 'auto';
+    }
+
     return $sanitized;
 }
 
@@ -455,6 +469,27 @@ function w24_render_settings_page() {
         exit;
     }
 
+    // Stop a running export. Cancelling only drops the slices that have not been
+    // sent yet — see w24_cancel_export() for why the menu in Waiter24 is left
+    // exactly as it was.
+    if (
+        isset( $_POST['waiter24_cancel_export'] )
+        && check_admin_referer( 'waiter24_cancel_export_action', 'waiter24_cancel_export_nonce' )
+    ) {
+        w24_cancel_export();
+
+        wp_safe_redirect(
+            add_query_arg(
+                array(
+                    'page'       => 'waiter24-export',
+                    'w24_export' => 'cancelled',
+                ),
+                admin_url( 'admin.php' )
+            )
+        );
+        exit;
+    }
+
     $manual_result = '';
     $manual_error  = '';
 
@@ -463,6 +498,8 @@ function w24_render_settings_page() {
 
     if ( 'started' === $flag ) {
         $manual_result = 'success';
+    } elseif ( 'cancelled' === $flag ) {
+        $manual_result = 'cancelled';
     } elseif ( 'error' === $flag ) {
         $manual_result = 'error';
         $stored        = get_transient( 'w24_export_error_' . get_current_user_id() );
@@ -477,6 +514,11 @@ function w24_render_settings_page() {
     $enable_widget  = $settings['enable_widget'];
     $demo_mode      = $settings['demo_mode'];
     $simple_stock   = $settings['simple_stock_mode'];
+    $export_language      = $settings['export_language'];
+    $ml_plugin            = w24_multilingual_plugin();
+    $available_languages  = $ml_plugin ? w24_available_languages() : array();
+    $default_lang_code    = $ml_plugin ? w24_default_site_language() : '';
+    $default_lang_name    = isset( $available_languages[ $default_lang_code ] ) ? $available_languages[ $default_lang_code ] : $default_lang_code;
     $demo_url       = add_query_arg( W24_DEMO_PARAM, '1', home_url( '/' ) );
     $next_scheduled = wp_next_scheduled( W24_CRON_HOOK );
     $last_run       = get_option( W24_LAST_RUN_KEY, array() );
@@ -495,11 +537,38 @@ function w24_render_settings_page() {
             ?>
         </p>
 
+        <?php if ( '' !== $flag ) : ?>
+            <script>
+                /* The flag has done its job: this page load rendered the notice
+                   above. Dropping it from the address bar keeps a reload — the
+                   export driver finishes with one — from announcing "Export
+                   started" again next to the finished run's own result. */
+                ( function () {
+                    if ( ! window.history || ! window.history.replaceState ) {
+                        return;
+                    }
+
+                    try {
+                        var url = new URL( window.location.href );
+                        url.searchParams.delete( 'w24_export' );
+                        window.history.replaceState( null, '', url.toString() );
+                    } catch ( e ) {}
+                } )();
+            </script>
+        <?php endif; ?>
+
         <?php if ( 'success' === $manual_result ) : ?>
             <div class="notice notice-success is-dismissible">
                 <p>
                     <strong><?php esc_html_e( 'Export started.', 'waiter24-ai-assistant-for-woocommerce' ); ?></strong>
                     <?php esc_html_e( 'It runs in the background, a batch at a time, so a large catalog cannot time out. Progress is shown below.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
+                </p>
+            </div>
+        <?php elseif ( 'cancelled' === $manual_result ) : ?>
+            <div class="notice notice-warning is-dismissible">
+                <p>
+                    <strong><?php esc_html_e( 'Export cancelled.', 'waiter24-ai-assistant-for-woocommerce' ); ?></strong>
+                    <?php esc_html_e( 'The batches that were already sent stay in Waiter24, and nothing was hidden — your menu is exactly as it was before this export. Press "Export Now" when you want to start over.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
                 </p>
             </div>
         <?php elseif ( 'error' === $manual_result ) : ?>
@@ -659,6 +728,45 @@ function w24_render_settings_page() {
                     </td>
                 </tr>
 
+                <?php if ( $ml_plugin ) : ?>
+                <!-- Menu Language -->
+                <tr>
+                    <th scope="row">
+                        <label for="w24_export_language"><?php esc_html_e( 'Menu Language', 'waiter24-ai-assistant-for-woocommerce' ); ?></label>
+                    </th>
+                    <td>
+                        <select id="w24_export_language" name="<?php echo esc_attr( W24_OPTION_KEY ); ?>[export_language]">
+                            <option value="auto" <?php selected( $export_language, 'auto' ); ?>>
+                                <?php
+                                printf(
+                                    /* translators: %s: detected default language name. */
+                                    esc_html__( 'Auto-detected — %s (your site\'s default language)', 'waiter24-ai-assistant-for-woocommerce' ),
+                                    esc_html( $default_lang_name )
+                                );
+                                ?>
+                            </option>
+                            <?php foreach ( $available_languages as $code => $name ) : ?>
+                                <option value="<?php echo esc_attr( $code ); ?>" <?php selected( $export_language, $code ); ?>>
+                                    <?php echo esc_html( $name ); ?>
+                                </option>
+                            <?php endforeach; ?>
+                            <option value="all" <?php selected( $export_language, 'all' ); ?>>
+                                <?php esc_html_e( 'All languages (no filter)', 'waiter24-ai-assistant-for-woocommerce' ); ?>
+                            </option>
+                        </select>
+                        <p class="description">
+                            <?php
+                            printf(
+                                /* translators: %s: name of the detected multilingual plugin (Polylang or WPML). */
+                                esc_html__( '%s was detected. Waiter24 shows the assistant one menu in one language, so only products in the language chosen here are exported — other translations of the same product are skipped automatically.', 'waiter24-ai-assistant-for-woocommerce' ),
+                                esc_html( 'polylang' === $ml_plugin ? 'Polylang' : 'WPML' )
+                            );
+                            ?>
+                        </p>
+                    </td>
+                </tr>
+                <?php endif; ?>
+
             </table>
             <?php submit_button( __( 'Save Settings', 'waiter24-ai-assistant-for-woocommerce' ) ); ?>
         </form>
@@ -688,6 +796,14 @@ function w24_render_settings_page() {
                 <br />
                 <?php esc_html_e( 'Stay in the WordPress admin until the export finishes: if your site does not run background tasks, the admin pushes the batches itself.', 'waiter24-ai-assistant-for-woocommerce' ); ?>
             </p>
+            <form method="post">
+                <?php wp_nonce_field( 'waiter24_cancel_export_action', 'waiter24_cancel_export_nonce' ); ?>
+                <p>
+                    <button type="submit" name="waiter24_cancel_export" value="1" class="button">
+                        <?php esc_html_e( 'Cancel Export', 'waiter24-ai-assistant-for-woocommerce' ); ?>
+                    </button>
+                </p>
+            </form>
         <?php endif; ?>
 
         <?php if ( 'off' === $export_period ) : ?>
@@ -711,6 +827,14 @@ function w24_render_settings_page() {
                     printf(
                         /* translators: %d: number of products sent. */
                         esc_html( _n( 'sent %d product', 'sent %d products', (int) $last_run['items'], 'waiter24-ai-assistant-for-woocommerce' ) ),
+                        (int) $last_run['items']
+                    );
+                    ?>
+                <?php elseif ( ! empty( $last_run['cancelled'] ) ) : ?>
+                    <?php
+                    printf(
+                        /* translators: %d: number of products sent before the export was cancelled. */
+                        esc_html( _n( 'cancelled after %d product', 'cancelled after %d products', (int) $last_run['items'], 'waiter24-ai-assistant-for-woocommerce' ) ),
                         (int) $last_run['items']
                     );
                     ?>
@@ -911,6 +1035,148 @@ function w24_start_export( $trigger = 'cron' ) {
 }
 
 /**
+ * Stop the export that is under way.
+ *
+ * Nothing has to be undone in Waiter24: an import session only hides the dishes
+ * it never sent when its *closing* call arrives (see w24_finalize_export), and a
+ * cancelled export never makes that call. The batches already pushed are simply
+ * kept as updates to the dishes they carried, so the menu the assistant serves
+ * stays exactly as it was.
+ *
+ * @return bool Whether an export was actually stopped.
+ */
+function w24_cancel_export() {
+    $progress = w24_export_progress();
+
+    if ( 'running' !== $progress['status'] ) {
+        return false;
+    }
+
+    // The page-match guard in w24_run_export_chunk() already makes a leftover
+    // slice exit, but a queue full of pending waiter24 actions still looks to
+    // the store owner (and to WooCommerce's scheduled-actions screen) like the
+    // export is going, so drop them.
+    if ( function_exists( 'as_unschedule_all_actions' ) ) {
+        as_unschedule_all_actions( W24_CHUNK_HOOK, null, 'waiter24' );
+    }
+
+    $progress['status'] = 'cancelled';
+    w24_set_progress( $progress );
+    delete_option( W24_QUEUE_KEY );
+
+    w24_record_run( '', (int) $progress['sent'], true );
+
+    return true;
+}
+
+/**
+ * =============================================
+ *  MULTILINGUAL SUPPORT (Polylang / WPML)
+ * =============================================
+ * Waiter24 shows the AI one menu in one language. Polylang/WPML tag each
+ * product's *translation* with a language, but do not filter background
+ * (cron/Action Scheduler) queries by language on their own — that only
+ * happens automatically for a real frontend request. Left alone, every
+ * translation of every product would be exported and the AI would mix
+ * languages inside a single menu. Translations of the same product commonly
+ * share the same `product_cat` term (Polylang's default — "categories do not
+ * need to be translated"), so the language has to be resolved per *product*,
+ * not per category.
+ */
+
+/**
+ * Which multilingual plugin, if any, is active.
+ *
+ * @return string|null 'polylang', 'wpml', or null.
+ */
+function w24_multilingual_plugin() {
+    if ( function_exists( 'pll_languages_list' ) ) {
+        return 'polylang';
+    }
+
+    if ( function_exists( 'icl_object_id' ) && has_filter( 'wpml_active_languages' ) ) {
+        return 'wpml';
+    }
+
+    return null;
+}
+
+/**
+ * Every language the site is set up for.
+ *
+ * @return array<string,string> Language code => native name. Empty when no
+ *                               multilingual plugin is active.
+ */
+function w24_available_languages() {
+    $plugin = w24_multilingual_plugin();
+    $out    = array();
+
+    if ( 'polylang' === $plugin ) {
+        $languages = pll_languages_list( array( 'fields' => '' ) );
+
+        foreach ( (array) $languages as $lang ) {
+            if ( isset( $lang->slug ) ) {
+                $out[ $lang->slug ] = isset( $lang->name ) ? $lang->name : $lang->slug;
+            }
+        }
+    } elseif ( 'wpml' === $plugin ) {
+        $languages = apply_filters( 'wpml_active_languages', null, array( 'skip_missing' => 0 ) );
+
+        foreach ( (array) $languages as $code => $lang ) {
+            $out[ $code ] = isset( $lang['native_name'] ) ? $lang['native_name'] : $code;
+        }
+    }
+
+    return $out;
+}
+
+/**
+ * The site's default/primary language code (e.g. what Polylang/WPML calls
+ * the language every non-translated product falls back to).
+ *
+ * @return string Language code, or '' when no multilingual plugin is active.
+ */
+function w24_default_site_language() {
+    $plugin = w24_multilingual_plugin();
+
+    if ( 'polylang' === $plugin ) {
+        return (string) pll_default_language( 'slug' );
+    }
+
+    if ( 'wpml' === $plugin ) {
+        $default = apply_filters( 'wpml_default_language', null );
+
+        return is_string( $default ) ? $default : '';
+    }
+
+    return '';
+}
+
+/**
+ * Language code the export should actually filter products to.
+ *
+ * @return string Language code to filter to, or '' to export every language
+ *                (no multilingual plugin, or the owner picked "All languages").
+ */
+function w24_export_language_code() {
+    if ( ! w24_multilingual_plugin() ) {
+        return '';
+    }
+
+    $setting = w24_get_settings()['export_language'];
+
+    if ( 'all' === $setting ) {
+        return '';
+    }
+
+    if ( 'auto' === $setting || ! array_key_exists( $setting, w24_available_languages() ) ) {
+        return w24_default_site_language();
+    }
+
+    return $setting;
+}
+
+/**
  * Ids of the products a shopper can actually reach.
  *
  * The assistant recommends what it is given, so anything a customer cannot open
@@ -928,21 +1194,50 @@ function w24_start_export( $trigger = 'cron' ) {
  *   a page they cannot buy from. Note this applies even in Simple Stock Mode:
  *   that setting governs how availability is *reported*, not whether the store
  *   shows the product at all.
+ * - **Other-language translations**, on a Polylang/WPML store (see
+ *   {@see w24_export_language_code()}) — only the resolved menu language is
+ *   exported, so the AI never mixes languages inside one menu.
  *
  * Private and draft products never enter the list — they are not `publish`.
  *
  * @return int[] Ascending product ids.
  */
 function w24_public_product_ids() {
-    $ids = wc_get_products(
-        array(
-            'status'  => 'publish',
-            'limit'   => -1,
-            'return'  => 'ids',
-            'orderby' => 'ID',
-            'order'   => 'ASC',
-        )
+    $lang_code   = w24_export_language_code();
+    $ml_plugin   = $lang_code ? w24_multilingual_plugin() : null;
+    $query_args  = array(
+        'status'  => 'publish',
+        'limit'   => -1,
+        'return'  => 'ids',
+        'orderby' => 'ID',
+        'order'   => 'ASC',
     );
+
+    if ( $lang_code && 'polylang' === $ml_plugin ) {
+        // Polylang tags every post (not every category) with a `language`
+        // term, so filtering here — rather than by product_cat — still works
+        // even when translated products share the same category.
+        $query_args['tax_query'] = array(
+            array(
+                'taxonomy' => 'language',
+                'field'    => 'slug',
+                'terms'    => $lang_code,
+            ),
+        );
+    }
+
+    if ( $lang_code && 'wpml' === $ml_plugin ) {
+        // WPML filters WP_Query by the "current" language, which a cron/Action
+        // Scheduler request does not have — force it for the duration of this
+        // one query, then restore whatever it was.
+        do_action( 'wpml_switch_language', $lang_code );
+    }
+
+    $ids = wc_get_products( $query_args );
+
+    if ( $lang_code && 'wpml' === $ml_plugin ) {
+        do_action( 'wpml_switch_language', null );
+    }
 
     $ids = is_array( $ids ) ? array_map( 'intval', $ids ) : array();
 
@@ -1402,7 +1697,7 @@ function w24_new_session_id() {
  */
 function w24_export_progress() {
     $defaults = array(
-        'status'  => 'idle',  // idle | running | done | error
+        'status'  => 'idle',  // idle | running | done | error | cancelled
         'session' => '',
         'page'    => 1,
         'sent'    => 0,
@@ -1501,18 +1796,21 @@ function w24_site_config() {
 /**
  * Store the outcome of the last run for display on the settings page.
  *
- * @param true|string $result Export result.
- * @param int         $count  Number of exported products.
+ * @param true|string $result    Export result.
+ * @param int         $count     Number of exported products.
+ * @param bool        $cancelled Whether the run was stopped by the store owner
+ *                               — shown as "cancelled", not as a failure.
  * @return true|string The untouched $result, so callers can return it directly.
  */
-function w24_record_run( $result, $count ) {
+function w24_record_run( $result, $count, $cancelled = false ) {
     update_option(
         W24_LAST_RUN_KEY,
         array(
-            'time'    => time(),
-            'items'   => (int) $count,
-            'ok'      => ( true === $result ),
-            'message' => is_string( $result ) ? $result : '',
+            'time'      => time(),
+            'items'     => (int) $count,
+            'ok'        => ( true === $result ),
+            'message'   => is_string( $result ) ? $result : '',
+            'cancelled' => (bool) $cancelled,
         ),
         false
     );
@@ -1831,6 +2129,14 @@ function w24_generate_intermediate_size( $image_id, $size ) {
 /**
  * Push the payload to the Waiter24 import endpoint.
  *
+ * Transient failures are retried, because one unlucky batch used to kill the
+ * whole export: any error marks the run failed, and the store then waits for the
+ * next schedule with a half-sent session that never closes. A connection reset,
+ * a gateway timeout or a 5xx while the service restarts is over in seconds, so
+ * the batch is simply sent again with a short backoff. Answers that will not
+ * change on a retry — a bad token (401/403), a payload the service rejects
+ * (422) — return immediately.
+ *
  * @param array $data Data to send.
  * @return true|string true when the push succeeded (HTTP 2xx), otherwise a
  *                     human-readable error message.
@@ -1849,38 +2155,65 @@ function w24_save_and_notify( $data ) {
         return __( 'Import Token is empty. Paste it from the Menu auto-import block in your Waiter24 dashboard (Site Integration).', 'waiter24-ai-assistant-for-woocommerce' );
     }
 
-    $response = wp_remote_post(
-        W24_IMPORT_URL,
-        array(
-            'timeout'   => 30,
-            'sslverify' => true,
-            'headers'   => array(
-                'Authorization' => 'Bearer ' . $import_token,
-                'Content-Type'  => 'application/json',
-                'Accept'        => 'application/json',
-            ),
-            'body'      => $json,
-        )
-    );
+    /**
+     * Filters how many times one batch is sent before the export gives up.
+     *
+     * @param int $attempts Total attempts, including the first one.
+     */
+    $attempts = (int) apply_filters( 'waiter24_export_push_attempts', 3 );
+    $attempts = max( 1, min( 5, $attempts ) );
+    $error    = '';
 
-    if ( is_wp_error( $response ) ) {
-        /* translators: %s: connection error message. */
-        return sprintf( __( 'Could not reach Waiter24: %s', 'waiter24-ai-assistant-for-woocommerce' ), $response->get_error_message() );
+    for ( $attempt = 1; $attempt <= $attempts; $attempt++ ) {
+        if ( $attempt > 1 ) {
+            // Short and bounded: this runs inside a batch that is already
+            // time-boxed (see w24_chunk_budget_seconds), so waiting minutes for
+            // a service that is down would cost more than failing does.
+            sleep( 2 * ( $attempt - 1 ) );
+        }
+
+        $response = wp_remote_post(
+            W24_IMPORT_URL,
+            array(
+                'timeout'   => 30,
+                'sslverify' => true,
+                'headers'   => array(
+                    'Authorization' => 'Bearer ' . $import_token,
+                    'Content-Type'  => 'application/json',
+                    'Accept'        => 'application/json',
+                ),
+                'body'      => $json,
+            )
+        );
+
+        if ( is_wp_error( $response ) ) {
+            /* translators: %s: connection error message. */
+            $error = sprintf( __( 'Could not reach Waiter24: %s', 'waiter24-ai-assistant-for-woocommerce' ), $response->get_error_message() );
+            continue;
+        }
+
+        $code = (int) wp_remote_retrieve_response_code( $response );
+
+        if ( $code >= 200 && $code < 300 ) {
+            return true;
+        }
+
+        if ( 401 === $code || 403 === $code ) {
+            return __( 'Authentication failed (HTTP 401/403). Check that the Import Token is correct — it is NOT the Unique (widget) Key.', 'waiter24-ai-assistant-for-woocommerce' );
+        }
+
+        $body = wp_remote_retrieve_body( $response );
+        /* translators: 1: HTTP status code, 2: response body excerpt. */
+        $error = sprintf( __( 'Import endpoint returned HTTP %1$d: %2$s', 'waiter24-ai-assistant-for-woocommerce' ), $code, mb_substr( (string) $body, 0, 300 ) );
+
+        // 4xx other than "too many requests" is a verdict on this payload, not a
+        // bad moment: sending it again would get the same answer.
+        if ( $code < 500 && 429 !== $code ) {
+            return $error;
+        }
     }
 
-    $code = (int) wp_remote_retrieve_response_code( $response );
-
-    if ( $code >= 200 && $code < 300 ) {
-        return true;
-    }
-
-    if ( 401 === $code || 403 === $code ) {
-        return __( 'Authentication failed (HTTP 401/403). Check that the Import Token is correct — it is NOT the Unique (widget) Key.', 'waiter24-ai-assistant-for-woocommerce' );
-    }
-
-    $body = wp_remote_retrieve_body( $response );
-    /* translators: 1: HTTP status code, 2: response body excerpt. */
-    return sprintf( __( 'Import endpoint returned HTTP %1$d: %2$s', 'waiter24-ai-assistant-for-woocommerce' ), $code, mb_substr( (string) $body, 0, 300 ) );
+    return $error;
 }
 
 /**

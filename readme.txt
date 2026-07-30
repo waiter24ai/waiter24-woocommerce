@@ -4,7 +4,7 @@ Tags: ai, chatbot, ai assistant, product recommendations, live chat
 Requires at least: 6.5
 Requires PHP: 7.4
 Tested up to: 7.0
-Stable tag: 1.12.0
+Stable tag: 1.13.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -33,6 +33,7 @@ The assistant only ever talks about the catalog you sync, so it does not invent 
 * **Demo Mode** — the widget script is served only to visitors arriving on a special `?waiter24_demo=1` link; every other page is sent without it, so you can evaluate the assistant on a live store without customers seeing it.
 * **Simple Stock Mode** — export everything as in-stock (useful for made-to-order menus), or follow real WooCommerce stock.
 * **Add-ons** — quantity-priced extras the assistant can offer ("+2 extra cheese") are attached to the cart line, priced into the line total, and copied onto the order so you can fulfil them.
+* **Multilingual stores (Polylang / WPML)** — the export auto-detects your site's default language and sends only that one, so the assistant never mixes languages inside one menu. Overridable from the settings page.
 * Translated into German, French and Ukrainian.
 
 = What it does NOT do =
@@ -152,6 +153,12 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 
 == Changelog ==
 
+= 1.13.0 =
+* Added: on a Polylang or WPML multilingual store, the export now sends only one language of the catalog — auto-detected from the site's default language — instead of every translation of every product. A new "Menu Language" setting lets you override the detected language or turn the filter off.
+* Added: **Cancel Export** button, shown while an export is running. Cancelling drops the batches that have not been sent yet; the menu in Waiter24 is left exactly as it was, because nothing is hidden until an export finishes.
+* Fixed: a batch that failed for a passing reason — a connection reset, a gateway timeout, a 5xx while the service restarted — used to fail the whole export. Each batch is now retried up to three times with a short pause, and only answers that cannot change on a retry (a wrong Import Token, a rejected payload) stop the run at once.
+* Fixed: after an export finished, the settings page still showed "Export started" next to the finished run's result, because the `w24_export` marker stayed in the page address. It is now removed as soon as the message has been shown.
+
 = 1.12.0 =
 * Fixed: a fresh install no longer exports the catalog on its own. Automatic sync used to be on from the moment the plugin was activated, so the first export went out without anyone pressing anything — and on a site whose WP-Cron does not fire, an overdue schedule started the export straight from a WordPress admin page. **Automatic Sync** is now a setting of its own, off by default: a new install exports only when you press "Export Now". Stores that already chose Daily, Weekly or Monthly keep that schedule — nothing changes for them.
 * Fixed: product photos were exported at their original size on many stores. The export asked for the "medium" size, and WordPress silently hands back the full-size original whenever that size was never generated — which is the normal state of a catalog filled by a CSV importer or a store migration. Photos are now exported at WordPress's "thumbnail" size (150×150, cropped on a default install), and a missing size is generated once and saved, so it is reused afterwards.
@@ -225,6 +232,9 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 * Catalog export and chat-widget injection.
 
 == Upgrade Notice ==
+
+= 1.13.0 =
+On a store running Polylang or WPML, the export now sends products in one auto-detected language instead of every translation — check the new "Menu Language" setting if you want a different language or no filter. A running export can also be cancelled now, and a batch that fails for a passing reason is retried instead of failing the whole export.
 
 = 1.12.0 =
 New installs no longer export on their own — automatic sync is off until you choose a schedule. Existing schedules are untouched. Product photos are now exported at thumbnail size instead of, on many stores, the full-size original.
