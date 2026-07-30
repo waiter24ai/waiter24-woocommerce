@@ -158,6 +158,7 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 * Added: **Cancel Export** button, shown while an export is running. Cancelling drops the batches that have not been sent yet; the menu in Waiter24 is left exactly as it was, because nothing is hidden until an export finishes.
 * Fixed: a batch that failed for a passing reason — a connection reset, a gateway timeout, a 5xx while the service restarted — used to fail the whole export. Each batch is now retried up to three times with a short pause, and only answers that cannot change on a retry (a wrong Import Token, a rejected payload) stop the run at once.
 * Fixed: after an export finished, the settings page still showed "Export started" next to the finished run's result, because the `w24_export` marker stayed in the page address. It is now removed as soon as the message has been shown.
+* Added: German, French and Ukrainian translations of everything new in this release — the settings screen has no English left in it on those sites.
 
 = 1.12.0 =
 * Fixed: a fresh install no longer exports the catalog on its own. Automatic sync used to be on from the moment the plugin was activated, so the first export went out without anyone pressing anything — and on a site whose WP-Cron does not fire, an overdue schedule started the export straight from a WordPress admin page. **Automatic Sync** is now a setting of its own, off by default: a new install exports only when you press "Export Now". Stores that already chose Daily, Weekly or Monthly keep that schedule — nothing changes for them.
