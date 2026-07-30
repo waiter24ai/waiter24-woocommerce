@@ -132,8 +132,9 @@ in one request, and `get_price() + addons` compounds the surcharge on each pass.
 
 | Filter | Default | Purpose |
 |--------|---------|---------|
-| `waiter24_export_image_size` | `thumbnail` | Registered image size used for `photo_url`. Missing sub-sizes are generated on the spot rather than silently falling back to the full-size original — see `w24_product_image_url()`. |
-| `waiter24_generate_missing_image_sizes` | `true` | Whether the export may generate an image size the store never made. Off means such products export at full size. |
+| `waiter24_export_image_size` | `waiter24_thumb` | Registered image size used for `photo_url`. The plugin's own 150×150 size, because WordPress's `thumbnail` is whatever the store set in Settings → Media — 768px on a real store we debugged. Missing sub-sizes are generated on the spot; see `w24_product_image_url()` for the whole chain and why `$is_intermediate` is not trusted. |
+| `waiter24_register_image_size` | `true` | Whether to register `waiter24_thumb` at all. Off saves one small file per upload site-wide, at the cost of exporting whatever sub-size the store happens to have. |
+| `waiter24_generate_missing_image_sizes` | `true` | Whether the export may generate an image size the store never made. Off falls through to the smallest sub-size the store already has. |
 | `waiter24_export_batch_size` | `200` | Products fetched per page during export (clamped 1–500). |
 | `waiter24_cart_line_addons` | — | Accept/reject/reprice add-ons before they touch a cart line. |
 | `waiter24_max_addons_per_line` | `20` | Cap on add-ons per cart line. |
@@ -193,6 +194,14 @@ PUBLISHING.md                               submission + release runbook
 The user-facing changelog is maintained in [`readme.txt`](readme.txt) (that is
 what WordPress.org renders). Summary of the current release:
 
+- **1.14.0** — photos export small for real: `$is_intermediate` from
+  `wp_get_attachment_image_src()` is no longer treated as evidence (it comes
+  from the `image_downsize` filter, and themes answer it with the original file
+  flagged as a thumbnail), the target size is the plugin's own `waiter24_thumb`
+  rather than the store-configurable `thumbnail`, and the fallback picks the
+  smallest sub-size **by measured pixels** instead of by name. The settings page
+  reports how many photos went out full size, and the version is shown there and
+  sent with every export (`client.version`).
 - **1.12.0** — automatic sync is a setting of its own and off by default, so a
   fresh install exports nothing until **Export Now** is pressed (existing
   schedules are untouched); photos export at `thumbnail` size, and a sub-size

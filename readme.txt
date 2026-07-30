@@ -4,7 +4,7 @@ Tags: ai, chatbot, ai assistant, product recommendations, live chat
 Requires at least: 6.5
 Requires PHP: 7.4
 Tested up to: 7.0
-Stable tag: 1.13.0
+Stable tag: 1.14.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -142,7 +142,11 @@ Optional paid extras (for example "extra cheese ×2") that the assistant can off
 
 = Can I change which image size is exported? =
 
-Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
+Yes, with the `waiter24_export_image_size` filter. It defaults to `waiter24_thumb` — the plugin's own 150×150 size, registered so that exported photos do not depend on what your store did to Settings → Media. If you would rather not have that size generated for new uploads, return false from `waiter24_register_image_size` and point `waiter24_export_image_size` at a size you already have.
+
+= The last export says some photos were sent at full size. Why? =
+
+Because WordPress could not make a smaller copy of those images. The usual causes are a plugin that blocks thumbnail generation, media hosted off-site (so the original file is not on the server), or GIF and SVG files, which are deliberately left alone. The export uses the smallest copy your store already has in that case, and only sends the original when there is nothing smaller at all.
 
 == Screenshots ==
 
@@ -152,6 +156,14 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 4. A product added to the real WooCommerce cart from inside the chat — the cart total in the site header updates without a page reload.
 
 == Changelog ==
+
+= 1.14.0 =
+* Fixed: product photos were still exported at full size on some stores, even after 1.12.0. Two causes, both now handled. First, the export believed WordPress when it said a URL was a resized copy — but that answer comes from the `image_downsize` filter, and themes exist that answer it with the original file marked as a thumbnail. The file name is now checked against the original's, which cannot be faked. Second, the export asked for the "thumbnail" size, whose dimensions are a per-store setting: on a store that had moved it to 768px, every "thumbnail" was a 600–750px photo.
+* Changed: photos are exported at `waiter24_thumb`, the plugin's own 150×150 size, so the result no longer depends on your Media settings. It is generated for new uploads, and made on the spot for images that do not have it yet.
+* Changed: when that size cannot be produced (media hosted off-site, no image editor, an animated GIF), the export now picks the **smallest copy your store already has**, measured in pixels rather than guessed from the size's name. The full-size original is the last resort.
+* Added: the last-export line on the settings page now reports how the photos went — "Photos: 380 resized, 12 sent at full size" — with an explanation when any went out full size. Silent fallbacks were the reason this took two releases to find.
+* Added: the plugin version is shown next to the settings page heading, and sent with every export so your Waiter24 import history records which version pushed the menu.
+* Added: `waiter24_register_image_size` filter to stop the plugin registering its own image size.
 
 = 1.13.0 =
 * Added: on a Polylang or WPML multilingual store, the export now sends only one language of the catalog — auto-detected from the site's default language — instead of every translation of every product. A new "Menu Language" setting lets you override the detected language or turn the filter off.
@@ -233,6 +245,9 @@ Yes, with the `waiter24_export_image_size` filter (defaults to `medium`).
 * Catalog export and chat-widget injection.
 
 == Upgrade Notice ==
+
+= 1.14.0 =
+Product photos really are exported small now: the export no longer trusts WordPress's claim that a URL is a resized copy (some themes make that claim about the original file), and it uses its own 150×150 size instead of "thumbnail", whose dimensions every store sets differently. The settings page now reports how many photos went out full size instead of failing silently.
 
 = 1.13.0 =
 On a store running Polylang or WPML, the export now sends products in one auto-detected language instead of every translation — check the new "Menu Language" setting if you want a different language or no filter. A running export can also be cancelled now, and a batch that fails for a passing reason is retried instead of failing the whole export.

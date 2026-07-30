@@ -3,7 +3,7 @@
 # This file is distributed under the same license as the plugin.
 msgid ""
 msgstr ""
-"Project-Id-Version: Waiter24 AI Assistant for WooCommerce 1.12.0\n"
+"Project-Id-Version: Waiter24 AI Assistant for WooCommerce 1.14.0\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-07-30 13:19+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
@@ -307,6 +307,17 @@ msgstr "Помилка автентифікації (HTTP 401/403). Переві
 #, php-format
 msgid "Import endpoint returned HTTP %1$d: %2$s"
 msgstr "Ендпоінт імпорту повернув HTTP %1$d: %2$s"
+
+
+#. translators: 1: photos exported as a small copy, 2: photos exported at their original size.
+#: waiter24-ai-assistant-for-woocommerce.php:893
+#, php-format
+msgid "Photos: %1$d resized, %2$d sent at full size."
+msgstr "Фото: %1$d зменшено, %2$d надіслано в повному розмірі."
+
+#: waiter24-ai-assistant-for-woocommerce.php:902
+msgid "Full-size photos make the chat slow to load. WordPress could not produce a smaller copy of those images — the usual reasons are a plugin that blocks thumbnail generation, media hosted off-site, or GIF/SVG files."
+msgstr "Фото в повному розмірі сповільнюють завантаження чату. WordPress не зміг створити меншу копію цих зображень — зазвичай це плагін, який блокує генерацію мініатюр, медіа на зовнішньому хостингу або файли GIF/SVG."
 
 #~ msgid "Export Period"
 #~ msgstr "Період експорту"
