@@ -4,7 +4,7 @@ Tags: ai, chatbot, ai assistant, product recommendations, live chat
 Requires at least: 6.5
 Requires PHP: 7.4
 Tested up to: 7.0
-Stable tag: 1.14.0
+Stable tag: 1.15.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -157,6 +157,11 @@ Because WordPress could not make a smaller copy of those images. The usual cause
 
 == Changelog ==
 
+= 1.15.0 =
+* Added: product weight is now exported in grams (`weight_g`), converted from whatever unit your store's WooCommerce settings use (kg, g, lbs or oz) — this is what lets the Waiter24 AI waiter calculate real calorie totals for a dish from a per-100g figure instead of guessing a portion size.
+* Added: each product variation's own weight (e.g. a smaller vs larger size) is now exported too, so a size with a different weight gets its own accurate calorie total instead of inheriting the base product's.
+* Fixed: the existing weight field sent to Waiter24 was a raw number with your store's unit letters appended (so a store priced in kg and one in g looked identical apart from the label) — display purposes are unaffected, but nothing downstream could actually compute from it. The new `weight_g` field is always a real number of grams, regardless of your store's unit setting.
+
 = 1.14.0 =
 * Fixed: product photos were still exported at full size on some stores, even after 1.12.0. Two causes, both now handled. First, the export believed WordPress when it said a URL was a resized copy — but that answer comes from the `image_downsize` filter, and themes exist that answer it with the original file marked as a thumbnail. The file name is now checked against the original's, which cannot be faked. Second, the export asked for the "thumbnail" size, whose dimensions are a per-store setting: on a store that had moved it to 768px, every "thumbnail" was a 600–750px photo.
 * Changed: photos are exported at `waiter24_thumb`, the plugin's own 150×150 size, so the result no longer depends on your Media settings. It is generated for new uploads, and made on the spot for images that do not have it yet.
@@ -245,6 +250,9 @@ Because WordPress could not make a smaller copy of those images. The usual cause
 * Catalog export and chat-widget injection.
 
 == Upgrade Notice ==
+
+= 1.15.0 =
+Product weight is now exported in real grams (converted from your store's own kg/g/lbs/oz setting), including per-variation weight for different sizes — this lets the Waiter24 AI waiter state accurate calorie totals per dish instead of a generic estimate.
 
 = 1.14.0 =
 Product photos really are exported small now: the export no longer trusts WordPress's claim that a URL is a resized copy (some themes make that claim about the original file), and it uses its own 150×150 size instead of "thumbnail", whose dimensions every store sets differently. The settings page now reports how many photos went out full size instead of failing silently.
