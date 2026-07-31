@@ -3,7 +3,7 @@
  * Plugin Name:          Waiter24 AI Assistant for WooCommerce
  * Plugin URI:           https://waiter24.ai/
  * Description:          Syncs your WooCommerce catalog to your Waiter24 account and adds the Waiter24 AI chat assistant to the storefront, so shoppers can ask questions and add products to the real WooCommerce cart from inside the chat.
- * Version:              1.14.0
+ * Version:              1.15.0
  * Requires at least:    6.5
  * Requires PHP:         7.4
  * Requires Plugins:     woocommerce
@@ -38,7 +38,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.14.0' );
+define( 'W24_EXPORT_VERSION', '1.15.0' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
 define( 'W24_CHUNK_HOOK', 'waiter24_export_chunk' ); // One background slice of a running export.
 define( 'W24_OPTION_KEY', 'waiter24_export_settings' );
@@ -1961,8 +1961,16 @@ function w24_build_item( $product, $currency, $simple_stock ) {
     $sale_price = ( '' !== $sale_price ) ? (float) $sale_price : null;
 
     // --- Weight ---
-    $weight = $product->get_weight();
-    $weight = ( '' !== $weight ) ? $weight . get_option( 'woocommerce_weight_unit', 'kg' ) : null;
+    // `weight` (display string) keeps its existing shape — a raw number plus
+    // the store's own unit label, never converted. `weight_g` is new: a clean
+    // number in grams, always, regardless of the store's weight_unit setting —
+    // the AI waiter's calorie math (per-100g density × total weight) needs one
+    // fixed unit, and the app has no way to know what "1.5" meant on its own.
+    $weight_raw = $product->get_weight();
+    $weight_g   = ( '' !== $weight_raw && is_numeric( $weight_raw ) )
+        ? w24_weight_to_grams( (float) $weight_raw, get_option( 'woocommerce_weight_unit', 'kg' ) )
+        : null;
+    $weight = ( '' !== $weight_raw ) ? $weight_raw . get_option( 'woocommerce_weight_unit', 'kg' ) : null;
 
     // --- Description (full first, short as fallback) ---
     $description = $product->get_description();
@@ -2022,6 +2030,18 @@ function w24_build_item( $product, $currency, $simple_stock ) {
                     $variation_item['values'] = $var_values;
                 }
 
+                // Each size/variant can weigh differently (a 30cm vs 40cm
+                // pizza) — WooCommerce lets a variation override the parent's
+                // weight, and get_weight() on the variation object returns
+                // that override directly when set.
+                $var_weight_raw = $var_obj->get_weight();
+                if ( '' !== $var_weight_raw && is_numeric( $var_weight_raw ) ) {
+                    $variation_item['weight_g'] = w24_weight_to_grams(
+                        (float) $var_weight_raw,
+                        get_option( 'woocommerce_weight_unit', 'kg' )
+                    );
+                }
+
                 $variations[] = $variation_item;
             }
 
@@ -2047,6 +2067,7 @@ function w24_build_item( $product, $currency, $simple_stock ) {
 
     $item['currency']     = $currency;
     $item['weight']       = $weight;
+    $item['weight_g']     = $weight_g;
     $item['tags']         = $tags_list;
     $item['photo_url']    = $photo_url;
     $item['product_url']  = get_permalink( $product_id );
@@ -2055,6 +2076,29 @@ function w24_build_item( $product, $currency, $simple_stock ) {
     $item['sort_order']   = (int) $product->get_menu_order();
 
     return $item;
+}
+
+/**
+ * Convert a WooCommerce weight value (in the store's own `woocommerce_weight_unit`
+ * setting) to grams. The AI waiter's calorie math (per-100g density × total
+ * weight) needs one fixed unit — WooCommerce stores kg/g/lbs/oz per store, never
+ * grams itself, and a bare number with no unit context is meaningless to it.
+ *
+ * @param float  $value Raw numeric weight, in the store's own unit.
+ * @param string $unit  woocommerce_weight_unit option value: kg|g|lbs|oz.
+ * @return float Weight in grams, rounded to 1 decimal.
+ */
+function w24_weight_to_grams( $value, $unit ) {
+    $factor_per_gram = array(
+        'kg'  => 1000.0,
+        'g'   => 1.0,
+        'lbs' => 453.59237,
+        'oz'  => 28.349523125,
+    );
+
+    $factor = isset( $factor_per_gram[ $unit ] ) ? $factor_per_gram[ $unit ] : $factor_per_gram['kg'];
+
+    return round( $value * $factor, 1 );
 }
 
 /**
