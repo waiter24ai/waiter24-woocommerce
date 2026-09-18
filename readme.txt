@@ -4,7 +4,7 @@ Tags: ai, chatbot, ai assistant, product recommendations, live chat
 Requires at least: 6.5
 Requires PHP: 7.4
 Tested up to: 7.0
-Stable tag: 1.15.0
+Stable tag: 1.17.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -14,7 +14,7 @@ Sync your WooCommerce catalog to Waiter24 and add an AI chat assistant that answ
 
 **Waiter24 AI Assistant for WooCommerce** connects your store to [Waiter24](https://waiter24.ai/), an AI sales-assistant service, and does two things:
 
-1. **Keeps your catalog in sync.** Published products — names, descriptions, prices, sale prices, categories, tags, images, weight, stock and variations — are sent to your Waiter24 account with one button, and on a schedule (daily, weekly or monthly) once you switch automatic sync on.
+1. **Keeps your catalog in sync.** Published products — names, descriptions, prices, sale prices, categories, tags, images, weight, stock and variations — are sent to your Waiter24 account with one button, and on a schedule (daily, weekly or monthly) once you switch automatic sync on. With automatic sync on, a price change, a stock flip or a product going live also pushes that one product within seconds — the schedule stays as a full reconciliation underneath.
 2. **Puts the assistant on your storefront.** One checkbox loads the Waiter24 chat widget, which answers questions about your products in your shopper's own language and can add items straight to the **real WooCommerce cart** without a page reload.
 
 The assistant only ever talks about the catalog you sync, so it does not invent products, prices or availability.
@@ -157,6 +157,13 @@ Because WordPress could not make a smaller copy of those images. The usual cause
 
 == Changelog ==
 
+= 1.17.0 =
+* Fixed: on a multilingual store (Polylang, WPML) product variation names were exported as raw slugs — a pizza size arrived as "40-ua" and a burger as "simple-burger-ua", and that is exactly what the AI assistant then read out to shoppers. Translated attribute terms are hidden from a term lookup running in the store's other language; the label is now read straight from the database, so the real wording is exported whichever language the sync happens to run in.
+* Fixed: variations built on a custom (non-taxonomy) product attribute now export the wording you typed on the product instead of its sanitized value.
+
+= 1.16.0 =
+* Added: with automatic sync on, a single product now pushes to Waiter24 within seconds of being saved — a price or description edit, a stock status flip, or a new product going live — instead of waiting for the next scheduled export. A product that becomes unpublished, hidden from the catalog, password-protected, or out of stock (on a store that hides those from the catalog) is pushed as unavailable rather than left for the AI to keep recommending. Bursts of edits (bulk actions, a CSV importer) are coalesced into one request. The scheduled export is unchanged and still runs as the full reconciliation underneath — a product removed without triggering any of these hooks is still caught there.
+
 = 1.15.0 =
 * Added: product weight is now exported in grams (`weight_g`), converted from whatever unit your store's WooCommerce settings use (kg, g, lbs or oz) — this is what lets the Waiter24 AI waiter calculate real calorie totals for a dish from a per-100g figure instead of guessing a portion size.
 * Added: each product variation's own weight (e.g. a smaller vs larger size) is now exported too, so a size with a different weight gets its own accurate calorie total instead of inheriting the base product's.
@@ -250,6 +257,9 @@ Because WordPress could not make a smaller copy of those images. The usual cause
 * Catalog export and chat-widget injection.
 
 == Upgrade Notice ==
+
+= 1.16.0 =
+With automatic sync on, price/stock/availability changes now reach Waiter24 within seconds instead of waiting for the schedule — no setting to turn on, it rides your existing Automatic Sync choice.
 
 = 1.15.0 =
 Product weight is now exported in real grams (converted from your store's own kg/g/lbs/oz setting), including per-variation weight for different sizes — this lets the Waiter24 AI waiter state accurate calorie totals per dish instead of a generic estimate.

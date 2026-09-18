@@ -3,7 +3,7 @@
  * Plugin Name:          Waiter24 AI Assistant for WooCommerce
  * Plugin URI:           https://waiter24.ai/
  * Description:          Syncs your WooCommerce catalog to your Waiter24 account and adds the Waiter24 AI chat assistant to the storefront, so shoppers can ask questions and add products to the real WooCommerce cart from inside the chat.
- * Version:              1.15.0
+ * Version:              1.17.0
  * Requires at least:    6.5
  * Requires PHP:         7.4
  * Requires Plugins:     woocommerce
@@ -38,9 +38,14 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.15.0' );
+define( 'W24_EXPORT_VERSION', '1.17.0' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
 define( 'W24_CHUNK_HOOK', 'waiter24_export_chunk' ); // One background slice of a running export.
+define( 'W24_REALTIME_HOOK', 'waiter24_realtime_push' ); // Debounced single-product push.
+define( 'W24_REALTIME_QUEUE_KEY', 'waiter24_realtime_queue' ); // Product ids waiting for the next flush.
+// Coalesces a burst of saves (bulk edit, a CSV importer touching one product
+// several times in a row) into one push instead of one request per hook firing.
+define( 'W24_REALTIME_DELAY_SECONDS', 20 );
 define( 'W24_OPTION_KEY', 'waiter24_export_settings' );
 define( 'W24_LAST_RUN_KEY', 'waiter24_export_last_run' );
 define( 'W24_PROGRESS_KEY', 'waiter24_export_progress' );
@@ -179,6 +184,7 @@ function w24_activate() {
 
 function w24_deactivate() {
     wp_clear_scheduled_hook( W24_CRON_HOOK );
+    wp_clear_scheduled_hook( W24_REALTIME_HOOK );
 
     // Drop any slices of an export still queued, so reactivating does not
     // resume half of yesterday's catalog against a fresh session.
@@ -188,6 +194,7 @@ function w24_deactivate() {
 
     delete_option( W24_PROGRESS_KEY );
     delete_option( W24_QUEUE_KEY );
+    delete_option( W24_REALTIME_QUEUE_KEY );
 }
 
 /**
@@ -269,6 +276,8 @@ function w24_maybe_reschedule_cron( $old_value, $value ) {
 
     if ( 'off' === $new_period ) {
         wp_clear_scheduled_hook( W24_CRON_HOOK );
+        wp_clear_scheduled_hook( W24_REALTIME_HOOK );
+        delete_option( W24_REALTIME_QUEUE_KEY );
 
         return;
     }
@@ -1837,6 +1846,183 @@ function w24_export_is_running() {
 }
 
 /**
+ * =============================================
+ *  REAL-TIME SYNC (price / stock / visibility)
+ * =============================================
+ * The scheduled/manual export above is a full reconciliation; this layer pushes
+ * a single product the moment it actually changes, so a price cut or an
+ * out-of-stock flip reaches the AI within seconds instead of waiting for the
+ * next schedule. It never replaces the full export — a save hook can be missed
+ * (a raw SQL update, a host that kills the request before wp_schedule_single_event
+ * fires), and only a full reconciliation is guaranteed to notice a product that
+ * disappeared without triggering any of the hooks below. The schedule above stays
+ * exactly as configured; this only adds a faster layer on top of it.
+ *
+ * Same on/off switch as the schedule: automatic sync 'off' means nothing pushes
+ * on its own, full stop (see w24_get_defaults()) — real-time is not a separate
+ * setting, it rides whatever schedule the owner already chose.
+ */
+add_action( 'woocommerce_new_product', 'w24_realtime_mark_dirty' );
+add_action( 'woocommerce_update_product', 'w24_realtime_mark_dirty' );
+add_action( 'woocommerce_product_set_stock_status', 'w24_realtime_mark_dirty' );
+add_action( 'woocommerce_variation_set_stock_status', 'w24_realtime_on_variation_stock_status', 10, 3 );
+add_action( 'transition_post_status', 'w24_realtime_on_status_transition', 10, 3 );
+add_action( W24_REALTIME_HOOK, 'w24_run_realtime_push' );
+
+function w24_realtime_mark_dirty( $product_id ) {
+    w24_mark_product_dirty( (int) $product_id );
+}
+
+/**
+ * A variation's own stock status changed. The parent product is queued, not the
+ * variation: w24_build_item() always rebuilds the full variations[] list, and
+ * MenuImportService replaces that list wholesale on update — pushing one
+ * variation on its own would drop every sibling variation from the menu.
+ */
+function w24_realtime_on_variation_stock_status( $variation_id, $status, $variation ) {
+    w24_mark_product_dirty( (int) $variation->get_parent_id() );
+}
+
+function w24_realtime_on_status_transition( $new_status, $old_status, $post ) {
+    if ( $new_status === $old_status || ! $post || 'product' !== $post->post_type ) {
+        return;
+    }
+
+    w24_mark_product_dirty( (int) $post->ID );
+}
+
+/**
+ * Queue one product for a debounced push and make sure exactly one flush is
+ * scheduled — never one event per edit, always one per burst.
+ *
+ * @param int $product_id
+ */
+function w24_mark_product_dirty( $product_id ) {
+    if ( $product_id <= 0 || ! w24_auto_sync_enabled() ) {
+        return;
+    }
+
+    $queue = get_option( W24_REALTIME_QUEUE_KEY, array() );
+    if ( ! is_array( $queue ) ) {
+        $queue = array();
+    }
+
+    if ( ! in_array( $product_id, $queue, true ) ) {
+        $queue[] = $product_id;
+        update_option( W24_REALTIME_QUEUE_KEY, $queue, false );
+    }
+
+    if ( ! wp_next_scheduled( W24_REALTIME_HOOK ) ) {
+        wp_schedule_single_event( time() + W24_REALTIME_DELAY_SECONDS, W24_REALTIME_HOOK );
+    }
+}
+
+/**
+ * Push everything queued since the last flush, in one request.
+ *
+ * A product still publicly visible is rebuilt in full (same shape as the
+ * scheduled export). One that just became invisible — unpublished, hidden from
+ * the catalog, password-protected, or out of stock on a store that hides those —
+ * cannot simply be left out of the payload: `upsert` never hides an absent item,
+ * only a full `replace`/session close does (see MenuImportService::import()). So
+ * it is pushed explicitly as unavailable instead — the same signal the AI
+ * already understands from is_available on every other import path.
+ */
+function w24_run_realtime_push() {
+    if ( ! w24_auto_sync_enabled() ) {
+        delete_option( W24_REALTIME_QUEUE_KEY );
+
+        return;
+    }
+
+    $settings = w24_get_settings();
+
+    if ( '' === trim( (string) $settings['import_token'] ) ) {
+        return;
+    }
+
+    $queue = get_option( W24_REALTIME_QUEUE_KEY, array() );
+    delete_option( W24_REALTIME_QUEUE_KEY );
+
+    if ( ! is_array( $queue ) || empty( $queue ) ) {
+        return;
+    }
+
+    $simple_stock = ! empty( $settings['simple_stock_mode'] );
+    $currency     = get_woocommerce_currency();
+    $items        = array();
+
+    foreach ( array_unique( array_map( 'intval', $queue ) ) as $product_id ) {
+        $product = wc_get_product( $product_id );
+
+        if ( ! $product ) {
+            // Gone without ever reaching the status-transition hook above (e.g. a
+            // hard delete via REST/WP-CLI). The next full export reconciles this;
+            // there is nothing left here to build a payload from.
+            continue;
+        }
+
+        if ( w24_product_publicly_exportable( $product_id ) ) {
+            $items[] = w24_build_item( $product, $currency, $simple_stock );
+        } else {
+            $items[] = array(
+                'external_id'  => (string) $product_id,
+                'name'         => $product->get_name(),
+                'is_available' => false,
+            );
+        }
+    }
+
+    if ( empty( $items ) ) {
+        return;
+    }
+
+    // Explicit `upsert`: the controller defaults to `replace` when `mode` is
+    // omitted, which would hide the tenant's entire menu except these items.
+    w24_save_and_notify(
+        array(
+            'items' => $items,
+            'mode'  => 'upsert',
+        )
+    );
+}
+
+/**
+ * Same visibility rules as w24_public_product_ids(), applied to one product
+ * instead of the whole catalog: publish status, not fully hidden from the
+ * catalog, not password-protected, and — only if the store itself hides them —
+ * not out of stock.
+ *
+ * @param int $product_id
+ * @return bool
+ */
+function w24_product_publicly_exportable( $product_id ) {
+    if ( 'publish' !== get_post_status( $product_id ) ) {
+        return false;
+    }
+
+    // WooCommerce's "Hidden" catalog visibility carries both terms at once;
+    // "Shop only" or "Search results only" carry just one and stay reachable —
+    // same distinction the bulk query in w24_public_product_ids() makes.
+    if ( has_term( 'exclude-from-catalog', 'product_visibility', $product_id )
+        && has_term( 'exclude-from-search', 'product_visibility', $product_id ) ) {
+        return false;
+    }
+
+    $post = get_post( $product_id );
+    if ( $post && '' !== $post->post_password ) {
+        return false;
+    }
+
+    if ( 'yes' === get_option( 'woocommerce_hide_out_of_stock_items' )
+        && has_term( 'outofstock', 'product_visibility', $product_id ) ) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
  * The store's cart selectors and endpoints, sent with the first slice.
  *
  * Note: cart_integration_enabled is deliberately NOT sent — that toggle is
@@ -2001,10 +2187,8 @@ function w24_build_item( $product, $currency, $simple_stock ) {
                     if ( '' === $attr_val ) {
                         continue;
                     }
-                    $term_obj  = get_term_by( 'slug', $attr_val, $attr_key );
-                    $val_label = $term_obj ? $term_obj->name : $attr_val;
 
-                    $var_name_parts[]         = $val_label;
+                    $var_name_parts[]         = w24_attribute_value_label( $attr_key, $attr_val, $product );
                     $clean_key                = str_replace( 'pa_', '', $attr_key );
                     $var_values[ $clean_key ] = $attr_val;
                 }
@@ -2076,6 +2260,72 @@ function w24_build_item( $product, $currency, $simple_stock ) {
     $item['sort_order']   = (int) $product->get_menu_order();
 
     return $item;
+}
+
+/**
+ * The human label behind one variation attribute value.
+ *
+ * WooCommerce stores the SLUG on the variation (`pa_size` => `40-ua`), never the
+ * label, so every export has to resolve it. `get_term_by()` alone is not enough:
+ *
+ *  - Since WP 4.4 `get_term_by()` runs a `WP_Term_Query`, and Polylang/WPML
+ *    filter that query by the request's current language. A store that
+ *    translated its attribute terms therefore hides the translated term from an
+ *    export running in the site's other language — the lookup returns false and
+ *    the raw slug ships. Live: kingpizza.kh.ua added a Ukrainian Polylang
+ *    translation and its whole menu started reading `40-ua`, `mini-ua`,
+ *    `simple-burger-ua`, which is what the AI then read out to guests.
+ *  - A custom (non-taxonomy) product attribute has no term at all. WooCommerce
+ *    saves the sanitized value on the variation while the parent product keeps
+ *    the merchant's original wording, so the label has to be matched back out of
+ *    the parent's option list.
+ *
+ * Order: term query, direct term table read (bypasses every language filter),
+ * parent product's own options, and finally the raw value.
+ *
+ * @param string     $attr_key Attribute key as stored on the variation ("pa_size", "size").
+ * @param string     $attr_val Slug or sanitized value stored on the variation.
+ * @param WC_Product $product  The parent (variable) product.
+ * @return string
+ */
+function w24_attribute_value_label( $attr_key, $attr_val, $product ) {
+    if ( taxonomy_exists( $attr_key ) ) {
+        $term = get_term_by( 'slug', $attr_val, $attr_key );
+        if ( $term && ! is_wp_error( $term ) && '' !== $term->name ) {
+            return $term->name;
+        }
+
+        // Same term, asked of the database instead of the (filtered) query API.
+        global $wpdb;
+        $name = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT t.name FROM {$wpdb->terms} t
+                 INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+                 WHERE tt.taxonomy = %s AND t.slug = %s
+                 LIMIT 1",
+                $attr_key,
+                $attr_val
+            )
+        );
+        if ( ! empty( $name ) ) {
+            return $name;
+        }
+    }
+
+    // Custom attribute: the parent holds the wording, the variation the slug.
+    $parent_attribute = $product ? ( $product->get_attributes()[ $attr_key ] ?? null ) : null;
+    if ( $parent_attribute && is_callable( array( $parent_attribute, 'get_options' ) ) ) {
+        foreach ( (array) $parent_attribute->get_options() as $option ) {
+            if ( ! is_string( $option ) ) {
+                continue;
+            }
+            if ( $option === $attr_val || sanitize_title( $option ) === $attr_val ) {
+                return $option;
+            }
+        }
+    }
+
+    return $attr_val;
 }
 
 /**
