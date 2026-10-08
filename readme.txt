@@ -4,7 +4,7 @@ Tags: ai, chatbot, ai assistant, product recommendations, live chat
 Requires at least: 6.5
 Requires PHP: 7.4
 Tested up to: 7.0
-Stable tag: 1.17.0
+Stable tag: 1.17.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -156,6 +156,14 @@ Because WordPress could not make a smaller copy of those images. The usual cause
 4. A product added to the real WooCommerce cart from inside the chat — the cart total in the site header updates without a page reload.
 
 == Changelog ==
+
+= 1.17.1 =
+* Fixed: "Export Now" and "Cancel export" could leave a cut-off settings page on hosts without a large output buffer — the button's redirect was sent after the page had already started printing. The buttons are now handled before any output.
+* Fixed: editing a variation's price or stock on the Variations tab now pushes the product to Waiter24 right away with automatic sync on (previously only a save of the parent product did).
+* Fixed: on a multilingual store (Polylang, WPML), saving a translation in a language you do not export no longer pushes it into your Waiter24 menu as an extra dish.
+* Fixed: a product filed under a top-level category and, separately, a subcategory of another category no longer gets a mismatched category/subcategory pair.
+* Fixed: page-builder shortcodes and HTML entities (&nbsp;, &amp;) no longer reach the exported product description.
+* Fixed: deleting the plugin now also clears its real-time sync queue and schedule.
 
 = 1.17.0 =
 * Fixed: on a multilingual store (Polylang, WPML) product variation names were exported as raw slugs — a pizza size arrived as "40-ua" and a burger as "simple-burger-ua", and that is exactly what the AI assistant then read out to shoppers. Translated attribute terms are hidden from a term lookup running in the store's other language; the label is now read straight from the database, so the real wording is exported whichever language the sync happens to run in.

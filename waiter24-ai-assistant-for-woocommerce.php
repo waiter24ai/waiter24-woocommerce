@@ -3,7 +3,7 @@
  * Plugin Name:          Waiter24 AI Assistant for WooCommerce
  * Plugin URI:           https://waiter24.ai/
  * Description:          Syncs your WooCommerce catalog to your Waiter24 account and adds the Waiter24 AI chat assistant to the storefront, so shoppers can ask questions and add products to the real WooCommerce cart from inside the chat.
- * Version:              1.17.0
+ * Version:              1.17.1
  * Requires at least:    6.5
  * Requires PHP:         7.4
  * Requires Plugins:     woocommerce
@@ -38,7 +38,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  *  CONSTANTS
  * =============================================
  */
-define( 'W24_EXPORT_VERSION', '1.17.0' );
+define( 'W24_EXPORT_VERSION', '1.17.1' );
 define( 'W24_CRON_HOOK', 'waiter24_scheduled_export' );
 define( 'W24_CHUNK_HOOK', 'waiter24_export_chunk' ); // One background slice of a running export.
 define( 'W24_REALTIME_HOOK', 'waiter24_realtime_push' ); // Debounced single-product push.
@@ -389,6 +389,71 @@ function w24_add_admin_menu() {
     );
 
     w24_settings_screen_id( $hook );
+
+    // Fires before the admin header is printed — the only point where the
+    // post/redirect/get below can still send its Location header.
+    add_action( 'load-' . $hook, 'w24_handle_settings_actions' );
+}
+
+/**
+ * Handle the settings page's own buttons (Export Now / Cancel export).
+ *
+ * Runs on `load-{page}` rather than inside the page callback: by the time the
+ * callback runs, WordPress has already printed the admin header, so a redirect
+ * from there only worked on hosts whose output buffer happened to swallow it —
+ * elsewhere the owner got a cut-off page after pressing the button.
+ */
+function w24_handle_settings_actions() {
+    if ( ! current_user_can( 'manage_woocommerce' ) ) {
+        return;
+    }
+
+    // Handle manual export. The request only *starts* it — see w24_start_export()
+    // for why the catalog is never built inside this page load. The outcome is
+    // carried through a redirect (post/redirect/get) so that the progress block
+    // can reload the page without the browser re-posting the button.
+    if (
+        isset( $_POST['waiter24_manual_export'] )
+        && check_admin_referer( 'waiter24_manual_export_action', 'waiter24_manual_export_nonce' )
+    ) {
+        $result = w24_start_export( 'manual' );
+
+        if ( true !== $result ) {
+            set_transient( 'w24_export_error_' . get_current_user_id(), (string) $result, MINUTE_IN_SECONDS );
+        }
+
+        wp_safe_redirect(
+            add_query_arg(
+                array(
+                    'page'       => 'waiter24-export',
+                    'w24_export' => ( true === $result ) ? 'started' : 'error',
+                ),
+                admin_url( 'admin.php' )
+            )
+        );
+        exit;
+    }
+
+    // Stop a running export. Cancelling only drops the slices that have not been
+    // sent yet — see w24_cancel_export() for why the menu in Waiter24 is left
+    // exactly as it was.
+    if (
+        isset( $_POST['waiter24_cancel_export'] )
+        && check_admin_referer( 'waiter24_cancel_export_action', 'waiter24_cancel_export_nonce' )
+    ) {
+        w24_cancel_export();
+
+        wp_safe_redirect(
+            add_query_arg(
+                array(
+                    'page'       => 'waiter24-export',
+                    'w24_export' => 'cancelled',
+                ),
+                admin_url( 'admin.php' )
+            )
+        );
+        exit;
+    }
 }
 
 /**
@@ -487,53 +552,8 @@ function w24_render_settings_page() {
         wp_die( esc_html__( 'You do not have sufficient permissions to access this page.', 'waiter24-ai-assistant-for-woocommerce' ) );
     }
 
-    // Handle manual export. The request only *starts* it — see w24_start_export()
-    // for why the catalog is never built inside this page load. The outcome is
-    // carried through a redirect (post/redirect/get) so that the progress block
-    // below can reload the page without the browser re-posting the button.
-    if (
-        isset( $_POST['waiter24_manual_export'] )
-        && check_admin_referer( 'waiter24_manual_export_action', 'waiter24_manual_export_nonce' )
-    ) {
-        $result = w24_start_export( 'manual' );
-
-        if ( true !== $result ) {
-            set_transient( 'w24_export_error_' . get_current_user_id(), (string) $result, MINUTE_IN_SECONDS );
-        }
-
-        wp_safe_redirect(
-            add_query_arg(
-                array(
-                    'page'       => 'waiter24-export',
-                    'w24_export' => ( true === $result ) ? 'started' : 'error',
-                ),
-                admin_url( 'admin.php' )
-            )
-        );
-        exit;
-    }
-
-    // Stop a running export. Cancelling only drops the slices that have not been
-    // sent yet — see w24_cancel_export() for why the menu in Waiter24 is left
-    // exactly as it was.
-    if (
-        isset( $_POST['waiter24_cancel_export'] )
-        && check_admin_referer( 'waiter24_cancel_export_action', 'waiter24_cancel_export_nonce' )
-    ) {
-        w24_cancel_export();
-
-        wp_safe_redirect(
-            add_query_arg(
-                array(
-                    'page'       => 'waiter24-export',
-                    'w24_export' => 'cancelled',
-                ),
-                admin_url( 'admin.php' )
-            )
-        );
-        exit;
-    }
-
+    // The Export Now / Cancel buttons are handled earlier, in
+    // w24_handle_settings_actions(), and arrive here as the w24_export flag.
     $manual_result = '';
     $manual_error  = '';
 
@@ -1866,6 +1886,11 @@ add_action( 'woocommerce_new_product', 'w24_realtime_mark_dirty' );
 add_action( 'woocommerce_update_product', 'w24_realtime_mark_dirty' );
 add_action( 'woocommerce_product_set_stock_status', 'w24_realtime_mark_dirty' );
 add_action( 'woocommerce_variation_set_stock_status', 'w24_realtime_on_variation_stock_status', 10, 3 );
+// A variation's own price/stock edit (the Variations tab saves each one on its
+// own) fires these, never woocommerce_update_product — without them a price
+// change on a pizza size only reached the menu on the next full export.
+add_action( 'woocommerce_new_product_variation', 'w24_realtime_on_variation_saved' );
+add_action( 'woocommerce_update_product_variation', 'w24_realtime_on_variation_saved' );
 add_action( 'transition_post_status', 'w24_realtime_on_status_transition', 10, 3 );
 add_action( W24_REALTIME_HOOK, 'w24_run_realtime_push' );
 
@@ -1881,6 +1906,20 @@ function w24_realtime_mark_dirty( $product_id ) {
  */
 function w24_realtime_on_variation_stock_status( $variation_id, $status, $variation ) {
     w24_mark_product_dirty( (int) $variation->get_parent_id() );
+}
+
+/**
+ * A variation was created or edited — queue its parent, for the same reason as
+ * w24_realtime_on_variation_stock_status().
+ *
+ * @param int $variation_id Variation id.
+ */
+function w24_realtime_on_variation_saved( $variation_id ) {
+    $parent_id = (int) wp_get_post_parent_id( (int) $variation_id );
+
+    if ( $parent_id > 0 ) {
+        w24_mark_product_dirty( $parent_id );
+    }
 }
 
 function w24_realtime_on_status_transition( $new_status, $old_status, $post ) {
@@ -1962,6 +2001,13 @@ function w24_run_realtime_push() {
             continue;
         }
 
+        // A translation in a language this store does not export never entered
+        // the menu, so there is nothing to update — pushing it would add the
+        // other-language copy as a new dish and mix languages in one menu.
+        if ( ! w24_product_in_export_language( $product_id ) ) {
+            continue;
+        }
+
         if ( w24_product_publicly_exportable( $product_id ) ) {
             $items[] = w24_build_item( $product, $currency, $simple_stock );
         } else {
@@ -1985,6 +2031,37 @@ function w24_run_realtime_push() {
             'mode'  => 'upsert',
         )
     );
+}
+
+/**
+ * Same language rule as w24_public_product_ids(), applied to one product.
+ *
+ * @param int $product_id
+ * @return bool True when no language filter applies or the product is in it.
+ */
+function w24_product_in_export_language( $product_id ) {
+    $lang_code = w24_export_language_code();
+
+    if ( '' === $lang_code ) {
+        return true;
+    }
+
+    $plugin = w24_multilingual_plugin();
+
+    if ( 'polylang' === $plugin && function_exists( 'pll_get_post_language' ) ) {
+        // Strict, like the bulk tax_query: an untagged product is not in the
+        // full export either, and a realtime push must not add what the next
+        // full export would hide again.
+        return pll_get_post_language( $product_id, 'slug' ) === $lang_code;
+    }
+
+    if ( 'wpml' === $plugin ) {
+        $details = apply_filters( 'wpml_post_language_details', null, $product_id );
+
+        return is_array( $details ) && isset( $details['language_code'] ) && $details['language_code'] === $lang_code;
+    }
+
+    return true;
 }
 
 /**
@@ -2100,22 +2177,24 @@ function w24_build_item( $product, $currency, $simple_stock ) {
     $term_ids    = $product->get_category_ids();
 
     if ( ! empty( $term_ids ) ) {
+        // A child term decides both levels at once — its own parent is the
+        // category. Pairing the first top-level term with the first child term
+        // instead turned a product in "Pizza" and "Drinks › Cola" into
+        // "Pizza › Cola".
         foreach ( $term_ids as $tid ) {
             $term = get_term( $tid, 'product_cat' );
             if ( ! $term || is_wp_error( $term ) ) {
                 continue;
             }
             if ( 0 === (int) $term->parent ) {
-                if ( null === $category ) {
+                if ( null === $category && null === $subcategory ) {
                     $category = $term->name;
                 }
             } elseif ( null === $subcategory ) {
-                $subcategory = $term->name;
-                if ( null === $category ) {
-                    $parent_term = get_term( $term->parent, 'product_cat' );
-                    if ( $parent_term && ! is_wp_error( $parent_term ) ) {
-                        $category = $parent_term->name;
-                    }
+                $parent_term = get_term( $term->parent, 'product_cat' );
+                if ( $parent_term && ! is_wp_error( $parent_term ) ) {
+                    $subcategory = $term->name;
+                    $category    = $parent_term->name;
                 }
             }
         }
@@ -2163,7 +2242,12 @@ function w24_build_item( $product, $currency, $simple_stock ) {
     if ( empty( $description ) ) {
         $description = $product->get_short_description();
     }
-    $description = ! empty( $description ) ? wp_strip_all_tags( $description ) : null;
+    // Page-builder shortcodes ([vc_row]…) and entities (&nbsp;, &amp;) are
+    // markup, not words — the AI would otherwise read them out to guests.
+    $description = ! empty( $description )
+        ? trim( html_entity_decode( wp_strip_all_tags( strip_shortcodes( $description ) ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) )
+        : null;
+    $description = ( '' !== (string) $description ) ? $description : null;
 
     // --- Variations ---
     $variations = null;
