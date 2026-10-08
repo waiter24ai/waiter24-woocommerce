@@ -21,8 +21,10 @@ delete_option( 'waiter24_export_settings' );
 delete_option( 'waiter24_export_last_run' );
 delete_option( 'waiter24_export_progress' );
 delete_option( 'waiter24_export_queue' );
+delete_option( 'waiter24_realtime_queue' );
 
 wp_clear_scheduled_hook( 'waiter24_scheduled_export' );
+wp_clear_scheduled_hook( 'waiter24_realtime_push' );
 
 // Background slices of an export that never finished (Action Scheduler, which
 // ships with WooCommerce — it may already be gone when this runs).
